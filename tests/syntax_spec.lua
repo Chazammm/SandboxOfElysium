@@ -1,4 +1,18 @@
-for _,name in ipairs({'SandboxOfElysium.lua','sandbox/model.lua','sandbox/catalog.lua','sandbox/runtime.lua','sandbox/report.lua','sandbox/ui.lua'}) do
+for _,name in ipairs({'SandboxOfElysium.lua','sandbox/model.lua','sandbox/catalog.lua','sandbox/runtime.lua','sandbox/report.lua','sandbox/ui.lua','sandbox/diagnostics.lua','sandbox/version.lua'}) do
     assert(loadfile('mod/SandboxOfElysium/'..name));print('PARSE '..name)
 end
-assert(loadfile('tests/native_probe.lua'));print('All distributed Lua files and native probe parse')
+assert(loadfile('tests/native_probe.lua'))
+assert(loadfile('tests/terrain_probe.lua'))
+assert(loadfile('tests/launcher_probe.lua'))
+assert(loadfile('tests/editing_probe.lua'))
+assert(loadfile('tests/placement_probe.lua'))
+assert(loadfile('tests/interface_probe.lua'))
+assert(loadfile('tests/inspector_probe.lua'))
+assert(loadfile('mod/SandboxOfElysium/sandbox/preview.lua'))
+assert(loadfile('mod/SandboxOfElysium/sandbox/integrity.lua'))
+assert(loadfile('mod/SandboxOfElysium/sandbox/final_view.lua'))
+assert(loadfile('tests/final_probe.lua'))
+assert(loadfile('tests/terrain_expansion_probe.lua'))
+assert(loadfile('tests/battlefield_probe.lua'))
+assert(loadfile('tests/empty_probe.lua'))
+print('All distributed Lua files and native/terrain/launcher probes parse')

@@ -1,6 +1,20 @@
 # Verification results — 2026-11-13
 
+**2026-11-14 editor.5:** [Final snapshot, empty editor, terrain and filter follow-up](TEST-BATTLEFIELD-2026-11-14.md). The old empty final grid was reproduced with a living survivor. The separate Extender now captures before native cleanup and supports an explicitly commander-free editor. Actual UI observations, candidate/final native runs, offline contracts and unresolved cases are separated in that report. Earlier tables remain historical.
+
+**Current menu/mod follow-up:** [Grouped Battlefield menu and active CrabCult units](TEST-MENU-MODS-2026-11-14.md). Current normal DLL `63b293…`: 97 offline cases; all selected native regression groups pass, including two fights and exact rebuilding of the actual ten-unit user setup after fixing a deployment cycle. New CrabCult battle and visible menu/filter/mod-sprite results are separate from the historical prototype tests below. Natural conversions/transformations and complete render scenes remain unverified.
+
+**2026-11-14 editor.4:** [Footprint/native Inspect/caster validation](TEST-INSPECTOR-2026-11-14.md). Frozen sources reproduced the actual invalid God Emperor recovery. Final build: **78 offline Lua cases and 13 distinct native groups PASS**; three complete visible six-unit battles and Back/Reset/Rematch/Save/Load succeed with the explicitly corrected copy. Genuine read-only native cards, item subcard, both teams/unique copies, 1×1/2×2/3×3/2×1 previews and Forest rejection verified visibly. Held right-drag and all camera zooms remain unverified visually. Original recovery/diagnostics and regular installation hashes unchanged. Earlier tables remain historical.
+
+**2026-11-14 editor.3:** [Interface/lifecycle follow-up](TEST-INTERFACE-2026-11-14.md) separates the reproduced God cleanup failure, native allocation/combat checks, visible search/sprite/report checks and offline regressions. Earlier tables below remain historical evidence.
+
+**2026-11-14 editor.2:** [Actual-user-diagnostic placement/deletion investigation](TEST-PLACEMENT-2026-11-14.md), native unique-slot reinitialization reproduced and prevented, verified large-unit deletion/reuse and explicit integrity recovery. Nine native groups and 40 offline cases passed; visible and injected/offline-only cases are distinguished. Earlier evidence below remains historical.
+
+**Current local editor follow-up:** [Priestess, native-map editor and diagnostics report](TEST-EDITOR-2026-11-13.md) supersedes the old rebuild/UI limitations below for the separate experimental build. It records the reproduced failure, corrected post-WAIT projection guard, visible successive Priestess placement/resize/error export, five native regression groups, 20 model and 8 editor checks. The tables below retain historical 0.1.0 evidence.
+
 Prototype 0.1.0; CoE5 5.43 Windows x64; unchanged CoE5SE dev `57abc69a2ddb272a5b9049b4a561367066d9d99e` (3.3.0). Tests used a private runtime/profile. See [RECON](RECON.md) for fingerprints. No result below implies full acceptance of the original specification.
+
+**Follow-up:** the tables below retain the released prototype's baseline. The local 3.4.0 terrain extension and updated Sandbox have a separate [complete terrain test report](TERRAIN-EXPERIMENT-2026-11-13.md). Plain and Forest were visually inspected and fought in the real game; invalid arguments, cleanup, injected initialization failure and Forest scenario/reset/rematch were exercised through native API tests. Current offline totals: **20 model/guard cases**, **21 actual extender terrain-parser cases**, all shipped Lua and both native probes parse. The old 16-case total below belongs to 0.1.0.
 
 **Evidence labels:** *Manual game UI* means a visible game window was inspected and operated. *Native API* means code ran inside that real game against CoE5SE. *Offline* means pure Lua/model tests outside the game. A native API test is not automatically a manual UI test.
 

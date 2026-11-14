@@ -2,6 +2,9 @@ local M=require('sandbox.model')
 local Catalog=require('sandbox.catalog')
 local Runtime=require('sandbox.runtime')
 local Report=require('sandbox.report')
+local Diagnostics=require('sandbox.diagnostics')
+local Preview=require('sandbox.preview')
+local FinalView=require('sandbox.final_view')
 local U={};U.__index=U
 local kinds={'Single','Horizontal Row','Vertical Row','Square'}
 local categories={'All','human','animal','undead','demonic','flying','ranged'}
@@ -10,14 +13,29 @@ function U.new(api)
     local self=setmetatable({api=api,scenario=M.new(),team=1,formation=1,n=1,search='',category=1,page=1,
         phase='menu',message='',buttons={},lastMouse=0,pending=nil,native=false,context=nil},U)
     self.report=Report.new(api)
-    self.drawHook=api.wrap('BATTLE_DRAW',function(next) local result=next();if self.phase=='prepare' or self.phase=='after' then self:draw() end;return result end)
+    self.diag=Diagnostics.new(api)
+    self.drawHook=api.wrap('BATTLE_DRAW',function(next) local result=next();if not self.inNativeMenu and (self.phase=='prepare' or self.phase=='after') then self:draw() end;return result end)
     self.waitHook=api.wrap('BATTLE_WAIT',function(next,b,m)
         local id=next(b,m)
-        if self.phase=='prepare' or self.phase=='after' then
-            local buttons=api.get('mouseButtons') or 0
-            self:input(buttons)
-            api.set('mouseButtons',0)
-            return 0
+        if not self.inNativeMenu and (self.phase=='prepare' or self.phase=='after') then
+            local engineButtons=api.get('mouseButtons') or 0
+            local buttons=engineButtons
+            if type(api.testFieldPointerButtons)=='function' then buttons=api.testFieldPointerButtons() end
+            if buttons==nil then
+                self:setSearchFocus(false)
+                api.set('mouseButtons',engineButtons&4)
+                if self.runtime and self.runtime.quarantine then self.runtime:quarantine(self.scenario,'physical_pointer_unavailable',nil,{}) end
+                return 0
+            end
+            if self.lastPhysicalButtons~=buttons then
+                self.diag:record('input',{physical_buttons=buttons,engine_buttons=engineButtons,last_buttons=self.lastMouse,last_cell=self.lastCell or 'none',source=type(api.testFieldPointerButtons)=='function' and 'SDL' or 'legacy'})
+                self.lastPhysicalButtons=buttons
+            end
+            local typing=self:searchEvents()
+            local consumed=self:input(buttons)
+            consumed=consumed or typing or self.searchFocused
+            if consumed then api.set('mouseButtons',engineButtons&4);return 0 end
+            return id
         end
         return id
     end)
@@ -25,69 +43,157 @@ function U.new(api)
 end
 function U:ensureCatalog()
     if self.catalog then return end
-    self.catalog=Catalog.read(self.api);self.runtime=Runtime.new(self.api,self.catalog)
+    self.catalog=Catalog.read(self.api);self.runtime=Runtime.new(self.api,self.catalog,self.diag)
     self.filtered=Catalog.filter(self.catalog,'','All');self.selected=self.api.findMonster('Spearman')
     local a=self.catalog.byId[self.selected];local b=self.catalog.byId[self.api.findMonster('Goblin')]
     if a and b then M.add(self.scenario,a.id,a.name,1,8,9);M.add(self.scenario,b.id,b.name,2,18,9) end
 end
 function U:prompt(title,prompt)
+    self:setSearchFocus(false)
     local m=self.catalog.byId[self.selected] or self.catalog.monsters[1]
     return self.api.ui.nameBox(title,prompt,m.sprite,42)
 end
 function U:menu(title,rows)
+    self:setSearchFocus(false)
     local ui=self.api.ui
-    ui.screenBegin(title);ui.screenWidth(math.min(680,self.api.get('screenW')-30));ui.sectionBegin('')
-    for _,row in ipairs(rows) do ui.text(row[1],row[2]) end
-    ui.sectionEnd();ui.bindEscape(999);return ui.wait()
+    ui.screenBegin(title);ui.screenWidth(math.min(680,self.api.get('screenW')-30))
+    local sectionOpen,buttonRow=false,false
+    for _,row in ipairs(rows) do
+        if row.section then
+            if sectionOpen then ui.sectionEnd()end
+            ui.sectionBegin(row.section);sectionOpen=true
+        elseif row.buttonRow then
+            if sectionOpen then ui.sectionEnd();sectionOpen=false end
+            ui.buttonRow();buttonRow=true
+        else
+            if not sectionOpen and not buttonRow then ui.sectionBegin('');sectionOpen=true end
+            ui.text(row[1],row[2])
+        end
+    end
+    if sectionOpen then ui.sectionEnd()end
+    ui.bindEscape(999);return ui.wait()
 end
-function U:notice(text)
-    while self:menu('SandboxOfElysium',{{0,text},{1,'OK'}})~=1 do end
+function U:notice(text,canExport)
+    self:setSearchFocus(false)
+    -- Keep map notices in its overlay; nested native editors need a synchronous
+    -- dialog so their next menu iteration does not hide the message.
+    if not self.inNativeMenu and self.runtime and self.runtime.open and (self.phase=='prepare' or self.phase=='after') then
+        self.noticeText=text;self.noticeCanExport=canExport~=false;self.context=nil
+        return
+    end
+    while true do
+        local rows={{0,text},{1,'OK'}}
+        if canExport~=false then rows[#rows+1]={2,'Export Diagnostics'} end
+        local id=self:menu('SandboxOfElysium',rows)
+        if id==1 or id==999 then return elseif id==2 then self:exportDiagnostics() end
+    end
+end
+function U:exportDiagnostics()
+    local selected=self.catalog and self.catalog.byId[self.selected]
+    local generation=self.runtime and self.runtime.generation
+    local preview,snapshot
+    if generation~=nil and self.previewInfo and self.previewInfo.fieldGeneration==generation and self.phase=='prepare' and not self.inNativeMenu and not self.noticeText and
+        not self:ownsPointer(self.api.get('uiPointerX'),self.api.get('uiPointerY')) then
+        preview=self.previewInfo;snapshot='current'
+    elseif generation~=nil and self.lastPreviewInfo and self.lastPreviewInfo.fieldGeneration==generation then
+        preview=self.lastPreviewInfo;snapshot='last map hover'
+    end
+    self.diag:record('export_diagnostics',{phase=self.phase,team=self.team})
+    local name,path=self.diag:export({terrain=self.scenario.terrain,team=self.team,phase=self.phase,
+        selected=selected and selected.name or 'none',map_mode=self.native and 'native' or 'planning grid',
+        preview_snapshot=snapshot or 'unknown',preview_field_generation=preview and preview.fieldGeneration or 'unknown',
+        preview_anchor_x=preview and preview.anchorX or 'unknown',preview_anchor_y=preview and preview.anchorY or 'unknown',
+        preview_monster=preview and preview.monster or 'unknown',
+        preview_width=preview and preview.width or 'unknown',preview_height=preview and preview.height or 'unknown',
+        preview_source=preview and preview.source or 'unavailable',preview_partial=1,
+        preview_validity_source=preview and preview.validitySource or 'unavailable',
+        preview_clear=preview and preview.clear or 'unknown',preview_blocked=preview and preview.blocked or 'unknown',
+        preview_outside=preview and preview.outside or 'unknown'},self.runtime and self.runtime:snapshot(self.scenario))
+    self:notice(name and 'Diagnostics saved: '..path..' | Upload this .ini or give Codex its path.' or path,false)
+end
+function U:setupRows()
+    local s=self.scenario
+    local locked=self.runtime.blocked
+    local function count(team)local n=M.count(s,team);return n..(n==1 and ' unit' or ' units')end
+    local change=locked and '' or ' (change)'
+    local rows={{section=locked and 'Preserved setup' or 'Current setup'},
+        {locked and 0 or 11,'Battlefield: '..(M.terrainNames[s.terrain] or 'Unknown')..change},
+        {locked and 0 or 1,'Team A: '..count(1)..' | color: '..M.colors[s.colors[1]][1]..change},
+        {locked and 0 or 2,'Team B: '..count(2)..' | color: '..M.colors[s.colors[2]][1]..change},
+        {locked and 0 or 15,'Multiple unique units: '..(s.allowMultipleUnique and 'On' or 'Off')..(self:multipleUniqueAvailable() and '' or ' (API unavailable)')}}
+    if self.message and self.message~='' then rows[#rows+1]={0,self.message}end
+    if self.runtime.blocked then
+        rows[#rows+1]={0,'Editing locked. Saved setup preserved; export diagnostics before recovery.'}
+        rows[#rows+1]={section='Recovery'};rows[#rows+1]={14,'Reopen preserved setup'}
+    else
+        rows[#rows+1]={section='Battlefield'}
+        rows[#rows+1]={3,'Open battlefield / edit (keep positions)'}
+        rows[#rows+1]={12,'Open with native deployment (reposition units)'}
+        rows[#rows+1]={section='Scenarios'}
+        rows[#rows+1]={4,'Load scenario'};rows[#rows+1]={10,'Save setup'}
+        if self.snapshot then rows[#rows+1]={9,'Reset last pre-battle setup'}end
+    end
+    rows[#rows+1]={section='Tools'};rows[#rows+1]={13,'Export Diagnostics'}
+    if self:hasSpellRepair() then rows[#rows+1]={16,'Repair saved spell selection (copy)'}end
+    if not self.runtime.blocked then
+        rows[#rows+1]={5,'Browse terrain data (read only)'};rows[#rows+1]={7,'Run small native battle check'}
+        rows[#rows+1]={6,'API limitations'}
+    end
+    rows[#rows+1]={buttonRow=true};rows[#rows+1]={999,'Main menu'}
+    return rows
 end
 function U:setup()
     self:ensureCatalog()
     while true do
         local s=self.scenario
-        local rows={{0,'Native battlefield: Grass, no fort. Size: native automatic.'},
-            {0,self.message},
-            {0,'Small / Medium / Large / Extra Large: unavailable in test-field API.'},
-            {1,'Team A color: '..M.colors[s.colors[1]][1]}, {2,'Team B color: '..M.colors[s.colors[2]][1]},
-            {3,'Prepare battlefield'}, {4,'Load scenario'}, {5,'Browse available terrain data (read only)'},
-            {6,'API limitations'}, {7,'Run small native battle check'}, {8,'Add unit to setup ('..#s.units..' placed)'}, {10,'Save setup'}, {999,'Back'}}
-        if self.snapshot then table.insert(rows,#rows,{9,'Reset last pre-battle setup'}) end
+        local available={};for id in pairs(self.catalog.testFieldTerrains) do available[#available+1]=id end;table.sort(available)
+        local rows=self:setupRows()
         local id=self:menu('Sandbox - battlefield',rows)
         if id==999 then return end
-        if id==1 or id==2 then s.colors[id]=s.colors[id]%7+1
+        if id==11 then
+            local index=0;for i,id in ipairs(available) do if id==s.terrain then index=i;break end end
+            local nextTerrain=available[index%math.max(1,#available)+1]
+            local t=nextTerrain and self.catalog.terrainById[nextTerrain]
+            if not nextTerrain then self:notice('No verified terrain capability is available. Current setup kept.')
+            elseif t and t.name==M.terrainNames[nextTerrain] then
+                s.terrain=nextTerrain;self.message='Terrain can block saved cells. Use native deployment to reposition units.'
+                self.diag:record('terrain',{terrain=nextTerrain})
+            else self:notice('Required vanilla terrain is missing or changed.') end
+        elseif id==1 or id==2 then s.colors[id]=s.colors[id]%7+1
+        elseif id==15 then self:toggleMultipleUnique()
         elseif id==3 then
             self:prepare()
+        elseif id==12 then
+            self:prepare(true)
         elseif id==4 then self:load()
         elseif id==5 then self:terrainBrowser()
-        elseif id==6 then self:notice('Grass only; native width; no attack-sprite or mod-origin API. No school-level setter or unit slot preflight. See API-GAPS.md.')
+        elseif id==6 then self:notice('Neutral Elysium, no fort; verified terrain capabilities; automatic width, no manual field sizes. No attack-sprite or mod-origin API. No school-level setter or unit slot preflight. See API-GAPS.md.')
         elseif id==7 then self:smallCheck()
         elseif id==9 and self.snapshot then self.scenario=M.copy(self.snapshot);self.message='Pre-battle setup selected; native restoration checked on Prepare'
         elseif id==10 then self:save()
-        elseif id==8 then
-            self:browse()
-            local text=self:prompt('Add unit','Team,x,y (zero based), e.g. 1,8,9 or 2,18,9:')
-            if text then
-                local team,x,y=text:match('^(%d+),%s*(%d+),%s*(%d+)$');team=tonumber(team);x=tonumber(x);y=tonumber(y)
-                if (team==1 or team==2) and x and x<1000 and y and y<20 and not M.at(s,x,y) then local m=self.catalog.byId[self.selected];M.add(s,m.id,m.name,team,x,y)
-                else self:notice('Invalid coordinates, team or occupied cell. Use Team,x,y.') end
-            end
+        elseif id==13 then self:exportDiagnostics()
+        elseif id==14 then
+            local ok,candidate=self.runtime:recover()
+            if ok then self.scenario=candidate;self:prepare(false,true) else self:notice(candidate) end
+        elseif id==16 then if self:repairSpells() then self:prepare(false,true) end
         end
+        if self.exitToMain then self.exitToMain=nil;return end
     end
 end
 function U:smallCheck()
     local s=M.new();M.add(s,self.api.findMonster('Spearman'),'Spearman',1,8,9);M.add(s,self.api.findMonster('Goblin'),'Goblin',2,18,9)
     M.add(s,self.api.findMonster('Goblin'),'Goblin',2,18,10)
-    local old=self.scenario;self.scenario=s
+    local old,oldSnapshot=self.scenario,self.snapshot;self.scenario=s
     local ok,why=self.runtime:build(s)
-    if ok then self:fight(); self:results();self.runtime:close() else self:notice(why) end
-    self.scenario=old;self.phase='menu'
+    local closed,closeWhy=true
+    if ok then if self:fight() then self:postBattle() end;self:setSearchFocus(false);closed,closeWhy=self.runtime:close() else self:notice(why) end
+    self.scenario=old;self.snapshot=oldSnapshot;self.phase='menu'
+    if closed==false then self.exitToMain=nil;self:notice('Native cleanup was not verified: '..tostring(closeWhy)..'. Original setup and report kept. Export Diagnostics, then restart the isolated game.') end
 end
 function U:terrainBrowser()
     local page=1
     while true do
-        local rows={{0,'Data inventory only: test-field API cannot select these terrains.'}}
+        local rows={{0,'Verified maps are selectable in Battlefield. This terrain catalog is read only.'}}
         for i=(page-1)*8+1,math.min(page*8,#self.catalog.terrains) do local t=self.catalog.terrains[i]
             rows[#rows+1]={0,('#%d %s | batmap %s'):format(t.id,t.name,tostring(t.batmap))}
         end
@@ -100,21 +206,149 @@ function U:refresh()
     self.filtered=Catalog.filter(self.catalog,self.search,categories[self.category])
     self.page=math.max(1,math.min(self.page,math.max(1,math.ceil(#self.filtered/5))))
 end
-function U:browse()
-    while true do
-        local ui=self.api.ui;ui.screenBegin('Select unit');ui.screenWidth(570);ui.sectionBegin('Units - loaded database')
-        ui.text(1,'Search: '..(self.search=='' and '(all)' or self.search));ui.text(2,'Filter: '..categories[self.category])
-        for i=(self.page-1)*5+1,math.min(self.page*5,#self.filtered) do local m=self.filtered[i]
-            ui.monsterRow(100+i,m.id,m.name,'Select | #'..m.id..' | A '..M.count(self.scenario,1,m.id)..' / B '..M.count(self.scenario,2,m.id))
+function U:setSearchFocus(on)
+    if not on then
+        if type(self.api.setTestFieldTextFocus)=='function' then self.api.setTestFieldTextFocus(false) end
+        if self.searchFocused then self.dragBlocked=true end
+        self.searchFocused=false;return true
+    end
+    if self.phase~='prepare' or self.runtime.blocked or self.noticeText then return false end
+    if type(self.api.setTestFieldTextFocus)~='function' or type(self.api.takeTestFieldTextEvents)~='function' then
+        self.message='Inline search requires the experimental text-input API. No popup is opened.';return false
+    end
+    local ok,why=self.api.setTestFieldTextFocus(true)
+    self.searchFocused=ok and true or false
+    if not ok then self.message='Inline search unavailable: '..tostring(why or 'unknown reason')
+    else self.context=nil;self.moving=nil;self.copyTemplate=nil;self.message='Type to filter; Backspace deletes, Clear resets, Enter/Escape leaves search.' end
+    return self.searchFocused
+end
+function U:searchEvents()
+    if not self.searchFocused or type(self.api.takeTestFieldTextEvents)~='function' then return false end
+    local packet=self.api.takeTestFieldTextEvents()
+    if type(packet)~='table' then self:setSearchFocus(false);self.message='Inline input state unavailable; search focus released.';return true end
+    local changed=false
+    for _,event in ipairs(packet.events or {}) do
+        if event.type=='text' and type(event.text)=='string' then
+            local text=event.text:gsub('[%z\1-\31\127]','')
+            local valid=true
+            if utf8 then local ok,length=pcall(utf8.len,text);valid=ok and length~=nil end
+            if valid then self.search=Catalog.textLimit(self.search..text,96);changed=true end
+        elseif event.type=='backspace' then self.search=Catalog.backspace(self.search);changed=true
+        elseif event.type=='clear' then self.search='';changed=true
+        elseif event.type=='submit' or event.type=='cancel' or event.type=='blur' then self:setSearchFocus(false) end
+    end
+    if changed then
+        self.page=1;self:refresh()
+        self.diag:record('search',{query_length=#self.search,matches=#self.filtered,source='inline_utf8'})
+    end
+    if packet.focused==false then self:setSearchFocus(false) end
+    if packet.overflow then self:setSearchFocus(false);self.message='Input queue overflow: search focus released. Click search to continue.' end
+    return true
+end
+function U:multipleUniqueAvailable()
+    if type(self.api.testFieldEditorCapabilities)~='function' then return false end
+    local ok,caps=pcall(self.api.testFieldEditorCapabilities)
+    return ok and type(caps)=='table' and (caps.multipleUnique==1 or caps.multipleUnique==true)
+end
+function U:toggleMultipleUnique()
+    if not self:multipleUniqueAvailable() then self:notice('Multiple independent unique units require the experimental API. The duplicate safety guard remains active.');return false end
+    local candidate=M.copy(self.scenario);candidate.allowMultipleUnique=not candidate.allowMultipleUnique
+    if not candidate.allowMultipleUnique then
+        local seen={}
+        for _,u in ipairs(candidate.units) do
+            if (self.api.get('monsterAbility',u.monster,'unique') or 0)>0 then
+                if seen[u.monster] then self:notice('Multiple unique units are still in this setup. Remove the extra copies before switching Off; current setup kept.');return false end
+                seen[u.monster]=true
+            end
         end
-        ui.text(3,'Previous page');ui.text(4,'Next page');ui.text(0,'Idle picture only. Mod provenance and attack picture unavailable.')
-        ui.text(999,'Back');ui.sectionEnd();ui.bindEscape(999)
-        local id=ui.wait()
-        if id==999 then return elseif id==1 then local q=self:prompt('Search units','Name contains (empty clears):');if q then self.search=q;self.page=1 end
-        elseif id==2 then self.category=self.category%#categories+1;self.page=1
-        elseif id==3 then self.page=self.page-1 elseif id==4 then self.page=self.page+1
-        elseif id>100 and self.filtered[id-100] then self.selected=self.filtered[id-100].id;self.copyTemplate=nil;return end
-        self:refresh()
+    end
+    if self.runtime.open then
+        local ok,why=self.runtime:build(candidate)
+        if not ok then self.message=why;self:notice(why);return false end
+    end
+    self.scenario=candidate;self.context=nil;self.moving=nil;self.copyTemplate=nil
+    self.message='Allow multiple unique units: '..(candidate.allowMultipleUnique and 'On' or 'Off')
+    self.diag:record('multiple_unique',{enabled=candidate.allowMultipleUnique and 1 or 0})
+    return true
+end
+function U:browse()
+    self:setSearchFocus(true)
+end
+function U:hasSpellRepair()
+    return self.runtime and type(self.runtime.spellRepairProblems)=='table' and next(self.runtime.spellRepairProblems)~=nil and
+        type(self.runtime.spellRepairCandidates)=='function' and type(self.runtime.repairSpellSelection)=='function'
+end
+function U:repairSpellUnit(candidate,problem)
+    local unit
+    for _,u in ipairs(candidate.units) do if u.id==problem.model_id then unit=u;break end end
+    if not unit then self:notice('The preserved unit is missing from this copy. Original recovery kept.');return end
+    local page=1;local known=problem.known
+    while true do
+        local rows={{0,'Edit memorized spells in the copy. Known spells and original recovery stay unchanged.'}}
+        for _,school in ipairs(problem.schools) do
+            local count=0
+            for _,key in ipairs(unit.spells) do
+                local id=tonumber(key:match('^(%d+):'));local info=id and self.api.spellInfo(id)
+                if info and info.path==school.path then count=count+1 end
+            end
+            rows[#rows+1]={0,tostring(school.name)..': '..count..' selected / native allowance '..school.allowance}
+        end
+        for i=(page-1)*8+1,math.min(page*8,#known) do local key=known[i]
+            rows[#rows+1]={100+i,(contains(unit.spells,key) and '[x] ' or '[ ] ')..key}
+        end
+        rows[#rows+1]={1,'Previous page'};rows[#rows+1]={2,'Next page'};rows[#rows+1]={999,'Back to repaired copy'}
+        local id=self:menu('Repair '..problem.name..' #'..problem.model_id,rows)
+        if id==999 then return
+        elseif id==1 then page=math.max(1,page-1)
+        elseif id==2 then page=math.min(math.max(1,math.ceil(#known/8)),page+1)
+        elseif known[id-100] then
+            local key=known[id-100]
+            if contains(unit.spells,key) then for i=#unit.spells,1,-1 do if unit.spells[i]==key then table.remove(unit.spells,i) end end
+            else unit.spells[#unit.spells+1]=key end
+        end
+    end
+end
+function U:repairSpells()
+    self:setSearchFocus(false);self.context=nil;self.moving=nil;self.pending=nil
+    if not self:hasSpellRepair() then self:notice('No verified spell-repair diagnosis is available. Original setup kept.');return false end
+    local candidate=M.copy(self.runtime.spellRepairScenario or self.runtime.recovery or self.scenario)
+    local problems,why=self.runtime:spellRepairCandidates(candidate)
+    if type(problems)~='table' or #problems==0 then self:notice(why or 'No invalid memorization was identified. Original setup kept.');return false end
+    self.inNativeMenu=true
+    local function finish(ok)
+        self.inNativeMenu=false;self.releaseBarrier=true;self.dragBlocked=true;self.lastCell=nil;self.dragOrigin=nil
+        return ok
+    end
+    while true do
+        local rows={{0,'Original recovery remains unchanged. Edit a copy only.'},
+            {0,'No spells are removed automatically. Cancel keeps the original.'},
+            {0,'Verification uses native school limits; an invalid copy is rejected.'}}
+        for i,problem in ipairs(problems) do
+            local count=0;for _,u in ipairs(candidate.units) do if u.id==problem.model_id then count=#u.spells end end
+            rows[#rows+1]={100+i,problem.name..' #'..problem.model_id..' | '..count..' selected spells (click to edit)'}
+            for _,school in ipairs(problem.schools) do
+                rows[#rows+1]={0,'Original '..tostring(school.name)..': '..school.selected_count..' selected / native allowance '..school.allowance}
+            end
+        end
+        rows[#rows+1]={1,'Verify repaired copy and save separately'};rows[#rows+1]={999,'Cancel - keep original recovery'}
+        local id=self:menu('Repair saved spell selection',rows)
+        if id==999 then return finish(false)
+        elseif problems[id-100] then self:repairSpellUnit(candidate,problems[id-100])
+        elseif id==1 then
+            local ok,verified,details=self.runtime:repairSpellSelection(candidate)
+            if ok then
+                self.scenario=verified;self.snapshot=M.copy(verified);self.phase='prepare';self.native=type(self.api.battleView)=='function'
+                self.noticeText=nil;self.copyTemplate=nil
+                self.message='User-selected repaired copy verified; original recovery and report kept. Saved: '..tostring(details and (details.path or details.name) or 'unknown')
+                self.diag:record('spell_repair',{result='verified user-selected copy',original_preserved=1,units=#verified.units})
+                return finish(true)
+            end
+            self:notice(tostring(verified)..' Original recovery kept; this copy is still available for editing.')
+            -- Validation may identify another independently configured caster.
+            -- Keep the user's copy edits while exposing the newly diagnosed row.
+            local updated=self.runtime:spellRepairCandidates(candidate)
+            if type(updated)=='table' and #updated>0 then problems=updated end
+        end
     end
 end
 function U:button(key,label,x,y,w,h,color)
@@ -123,120 +357,348 @@ function U:button(key,label,x,y,w,h,color)
     ui.drawText(x+5,y+(h-13)/2,13,label,0.96,0.96,0.90,1)
     self.buttons[#self.buttons+1]={key=key,x=x,y=y,w=w,h=h}
 end
+function U:unitAt(x,y)
+    if type(self.api.battleUnitAt)=='function' and self.runtime.open then
+        local unit=self.api.battleUnitAt(x,y)
+        local found
+        if unit and unit>=0 and (self.api.get('unitHp',unit) or 0)>0 then
+            for _,u in ipairs(self.scenario.units) do if self.runtime.live[u.id]==unit then if found then return end;found=u end end
+        end
+        return found
+    end
+    if self.native then return end
+    return M.at(self.scenario,x,y)
+end
+function U:placementFootprint()
+    local source=self.moving or self.copyTemplate
+    local monster=source and source.monster or self.selected
+    local unit=source and self.runtime.live[source.id] or nil
+    if type(self.api.testFieldFootprint)~='function' then return nil,'Footprint API unavailable' end
+    local ok,footprint,why=pcall(self.api.testFieldFootprint,monster,unit)
+    if not ok then return nil,'Footprint query failed' end
+    if type(footprint)~='table' or footprint.anchor~='positive_xy' or not Preview.anchors('Single',1,0,0,footprint.width,footprint.height) then
+        return nil,tostring(why or 'Native footprint unavailable')
+    end
+    if source and not self.moving and footprint.monster~=source.monster then return nil,'Copy source transformed; its saved model must be verified first' end
+    footprint.requestedMonster=monster;footprint.unit=unit
+    return footprint
+end
+function U:placementAnchors(x,y,footprint)
+    footprint=footprint or self:placementFootprint()
+    if not footprint then
+        if self.formation==1 then return {{x=x,y=y}} end
+        return nil,'Large-unit formation spacing requires the read-only native footprint API.'
+    end
+    return Preview.anchors(self.moving and 'Single' or kinds[self.formation],self.n,x,y,footprint.width,footprint.height)
+end
+function U:placementPreview(x,y)
+    local footprint,why=self:placementFootprint()
+    if not footprint then return {cells={},label='Footprint unknown: '..tostring(why)..'; native placement decides.',partial=true,anchorX=x,anchorY=y,fieldGeneration=self.runtime.generation} end
+    if self.dragOrigin and self.lastMouse&2~=0 and not self.moving then x,y=Preview.snap(x,y,self.dragOrigin,self.dragOrigin.stepX,self.dragOrigin.stepY) end
+    local anchors=self:placementAnchors(x,y,footprint)
+    local plan={cells={},monster=footprint.monster,width=footprint.width,height=footprint.height,source=footprint.source,
+        partial=true,clear=0,blocked=0,outside=0,unknown=0,anchors=anchors,preflightAccepted=0,anchorX=x,anchorY=y,fieldGeneration=self.runtime.generation}
+    for _,anchor in ipairs(anchors) do
+        local row
+        if type(self.api.testFieldPlacementPreflight)=='function' then
+            local ok,value=pcall(self.api.testFieldPlacementPreflight,footprint.monster,anchor.x,anchor.y,footprint.unit,self.moving~=nil)
+            if ok and type(value)=='table' and value.width==footprint.width and value.height==footprint.height then row=value end
+        end
+        local native={}
+        if row then
+            plan.preflightAccepted=plan.preflightAccepted+1
+            for _,cell in ipairs(row.cells or {}) do native[cell.x..':'..cell.y]=cell end
+        end
+        for _,cell in ipairs(Preview.cells({anchor},footprint.width,footprint.height)) do
+            local observed=native[cell.x..':'..cell.y]
+            if observed then cell.status=observed.status;cell.screenX=observed.screenX;cell.screenY=observed.screenY end
+            if not cell.status then
+                cell.status=(cell.x<0 or cell.y<0 or cell.x>=self.runtime.width or cell.y>=20) and 'out_of_bounds' or 'unknown'
+            end
+            if cell.status=='clear' then plan.clear=plan.clear+1
+            elseif cell.status=='out_of_bounds' then plan.outside=plan.outside+1
+            elseif cell.status=='occupied' or cell.status=='terrain' then plan.blocked=plan.blocked+1
+            else cell.status='unknown';plan.unknown=plan.unknown+1 end
+            plan.cells[#plan.cells+1]=cell
+        end
+    end
+    plan.validitySource=plan.preflightAccepted==#anchors and 'native_geometry_and_occupancy_only' or plan.preflightAccepted>0 and 'native_preflight_plus_unknown_cells' or 'bounds_only_unknown_occupancy'
+    plan.label=('%dx%d %s | partial: clear %d / blocked %d / outside %d / unknown %d'):format(plan.width,plan.height,tostring(plan.source),plan.clear,plan.blocked,plan.outside,plan.unknown)
+    return plan
+end
+function U:ownsPointer(x,y)
+    local W,H=self.api.get('screenW'),self.api.get('screenH')
+    if self.phase=='after' then return y>=H-38 or y<106 end
+    return y>=H-38 or y<38 or x>=W-300 and (y<342 or y>=H-240)
+end
 function U:draw()
-    local api,ui=self.api,self.api.ui;local W,H=api.get('screenW'),api.get('screenH')
-    self.buttons={}
-    local p=W-238
-    ui.drawRect(0,H-38,W,38,0.035,0.045,0.055,0.99)
-    local after=self.phase=='after' and self.report.result
-    self:button('team1','Team A: '..(after and after.teamA.survivors..' alive' or M.count(self.scenario,1)),10,H-32,115,25,self.team==1 and {0.16,0.32,0.52} or nil)
-    self:button('team2','Team B: '..(after and after.teamB.survivors..' alive' or M.count(self.scenario,2)),132,H-32,115,25,self.team==2 and {0.16,0.32,0.52} or nil)
-    if self.phase=='prepare' then self:button('native',self.native and 'Planning grid' or 'Native view',255,H-32,120,25) end
-    self:button('back',self.moving and 'Cancel move' or 'Back',W-105,H-32,95,25)
-    if self.phase=='after' then
-        ui.drawRect(0,H-122,W,76,0.035,0.045,0.055,0.94)
-        ui.drawText(15,H-75,16,'Battle complete',1,0.85,0.55,1)
-        ui.drawText(15,H-100,12,'Native unit positions are unavailable after combat. See report; Reset restores the setup.',0.95,0.95,0.9,1)
-        ui.drawRect(0,0,W,42,0.035,0.045,0.055,0.95)
-        self:button('results','Battle report',12,7,135,28)
-        self:button('reset','Reset setup',158,7,130,28)
-        self:button('rematch','Rematch',300,7,110,28)
-        return
-    end
-    if self.native then
-        ui.drawRect(0,0,W,42,0.035,0.045,0.055,0.95)
-        ui.drawText(12,15,13,'Native battlefield. Use Planning grid to edit; native camera remains game controlled.',1,1,1,1)
-        return
-    end
-    -- This is an explicit cell editor, not a replacement for native terrain/graphics.
-    local width=self.runtime.width
-    local cell=math.min((p-24)/width,(H-118)/20)
-    self.grid={x=12,y=64,cell=cell,width=width}
-    ui.drawRect(0,46,p,H-84,0.06,0.08,0.065,1)
-    for y=0,19 do for x=0,width-1 do
-        ui.drawRect(12+x*cell,64+(19-y)*cell,cell-0.6,cell-0.6,0.16,0.20,0.16,1)
-    end end
-    for _,u in ipairs(self.scenario.units) do local color=M.colors[self.scenario.colors[u.team]]
-        ui.drawRect(12+u.x*cell,64+(19-u.y)*cell,cell-0.6,cell-0.6,color[2],color[3],color[4],0.9)
-        ui.drawText(13+u.x*cell,64+(19-u.y)*cell,math.min(10,cell*0.5),(u.team==1 and 'A' or 'B')..u.id,1,1,1,1)
-    end
-    local gx,gy=self:pointerCell()
-    ui.drawText(16,H-70,18,'Deployment editor',0.94,0.86,0.66,1)
-    ui.drawText(16,H-93,12,'Grass | native automatic size | Team A left, Team B right by default',0.85,0.86,0.82,1)
-    local hovered=gx and M.at(self.scenario,gx,gy)
-    if hovered then
-        ui.drawText(16,H-119,13,(hovered.team==1 and 'A' or 'B')..hovered.id..' '..hovered.name..' | cell '..gx..','..gy,1,1,1,1)
-    else
-        ui.drawText(16,H-119,12,'Select a unit on the right, then right-click a cell. Drag repeats the formation.',0.76,0.8,0.76,1)
-    end
-    if gx and self.selected and not self.context then
-        for _,c in ipairs(M.cells(kinds[self.formation],self.n,gx,gy)) do
-            local valid=c[1]>=0 and c[1]<width and c[2]>=0 and c[2]<20 and not M.at(self.scenario,c[1],c[2])
-            if c[1]>=0 and c[1]<width and c[2]>=0 and c[2]<20 then
-                ui.drawRect(12+c[1]*cell,64+(19-c[2])*cell,cell-0.6,cell-0.6,valid and 0.3 or 1,valid and 0.9 or 0.2,0.2,0.45)
+    local api,ui=self.api,self.api.ui;local W,H=api.get('screenW'),api.get('screenH');local p=W-300
+    self.buttons={};self.grid=nil;self.previewInfo=nil
+    self.view=self.native and type(api.battleView)=='function' and api.battleView() or nil
+    if self.native and not self.view then self.native=false;self.message='Native projection unavailable; compatibility planning grid shown.' end
+    if self.phase=='after' and self.view and self.finalPlan then
+        for _,entry in ipairs(self.finalPlan.rows) do
+            local x,y=api.battleCellToScreen(entry.x,entry.y)
+            if x and y then
+                local size=self.view.cellSize;local w,h=entry.width*size,entry.height*size
+                if entry.team~=0 then
+                    local color=M.colors[self.scenario.colors[entry.team]]
+                    ui.drawRect(x-size/2,y-size/2,w-1,h-1,color[2],color[3],color[4],0.72)
+                end
+                if type(ui.drawMonsterIconFit)=='function' then ui.drawMonsterIconFit(x-size/2+1,y-size/2+1,w-2,h-2,entry.monster) end
             end
         end
     end
-    ui.drawText(12,45,11,'Planning cells: '..width..' x 20. Native collision is checked on placement.',0.86,0.87,0.78,1)
-    ui.drawRect(p,0,238,H-38,0.035,0.045,0.055,0.99)
-    local m=self.catalog.byId[self.selected]
-    ui.drawText(p+8,H-61,13,m and m.name:sub(1,29) or 'Select unit',1,0.86,0.55,1)
-    self:button('browse','Browse sprites / search',p+8,H-96,220,26)
-    self:button('formation',kinds[self.formation]..' ('..self.n..')',p+8,H-128,170,26)
-    self:button('number','+',p+184,H-128,44,26)
-    self:button('fight','Start battle',p+8,H-167,220,30,{0.32,0.21,0.08})
-    self:button('save','Save',p+8,H-202,105,26);self:button('load','Load',p+120,H-202,108,26)
-    self:button('clear','Clear',p+8,H-234,105,26)
-    if self.snapshot then self:button('reset','Reset',p+120,H-234,108,26) end
-    self:button('search','Search: '..self.search:sub(1,15),p+8,205,220,25)
-    self:button('filter','Filter: '..categories[self.category],p+8,175,220,25)
-    for row=1,5 do local index=(self.page-1)*5+row; local item=self.filtered[index]
-        if item then self:button('unit:'..index,item.name:sub(1,27),p+8,175-row*27,220,24) end
+    if self.noticeText then
+        local width=math.min(700,W-40);local columns=math.max(20,math.floor((width-30)/7))
+        local lines={};local text=self.noticeText
+        while #text>0 do lines[#lines+1]=text:sub(1,columns);text=text:sub(columns+1) end
+        local height=#lines*18+90;local x,y=(W-width)/2,(H-height)/2
+        ui.drawRect(0,0,W,H,0,0,0,0.65);ui.drawRect(x,y,width,height,0.055,0.075,0.09,1)
+        ui.drawText(x+15,y+height-25,14,'SandboxOfElysium',1,0.9,0.65,1)
+        for i,line in ipairs(lines) do ui.drawText(x+15,y+height-40-i*18,12,line,1,1,0.92,1) end
+        self:button('noticeclose','OK',x+15,y+12,75,26)
+        if self.noticeCanExport then self:button('diagnostics','Export Diagnostics',x+105,y+12,170,26) end
+        return
     end
-    self:button('prev','<',p+8,5,40,25);self:button('next','>',p+188,5,40,25)
-    ui.drawText(p+58,12,11,self.page..' / '..math.max(1,math.ceil(#self.filtered/5)),0.8,0.8,0.8,1)
-    ui.drawRect(0,0,p,38,0.035,0.045,0.055,1)
-    ui.drawText(10,20,11,self.moving and 'MOVE: right-click destination; Cancel move keeps the original cell.' or 'Right-click places. Existing unit opens Edit / Move / Copy / Delete.',1,1,0.9,1)
-    ui.drawText(10,4,10,self.message:sub(1,100),0.9,0.72,0.4,1)
+    if self.runtime.blocked then
+        ui.drawRect(0,0,W,H,0.045,0.035,0.035,0.98)
+        ui.drawText(35,H-65,18,'Editing locked: native state could not be verified',1,0.6,0.4,1)
+        ui.drawText(35,H-100,12,'The saved setup is preserved. Native counts and sprites are not a verified editor state.',1,0.9,0.8,1)
+        ui.drawText(35,H-126,12,'Export Diagnostics. Reopen explicitly to rebuild the preserved setup with its saved spells/items.',1,0.9,0.8,1)
+        ui.drawText(35,H-152,11,'Recovery copy: '..tostring(self.runtime.recoveryFile or 'file unavailable; in-memory setup kept'),1,0.9,0.7,1)
+        self:button('diagnostics','Export Diagnostics',35,H-210,180,30)
+        self:button('recover','Reopen preserved setup',230,H-210,220,30)
+        self:button('back','Back',465,H-210,90,30)
+        if self:hasSpellRepair() then self:button('spellrepair','Repair saved spell selection',35,H-252,300,30) end
+        return
+    end
+    if self.phase=='prepare' and not self.native then
+        local width=self.runtime.width;local cell=math.min((p-24)/width,(H-130)/20)
+        self.grid={x=12,y=52,cell=cell,width=width}
+        ui.drawRect(0,38,p,H-76,0.06,0.08,0.065,1)
+        for y=0,19 do for x=0,width-1 do
+            local object=self.runtime.objects[x..':'..y]
+            ui.drawRect(12+x*cell,52+y*cell,cell-0.6,cell-0.6,object and 0.32 or 0.16,object and 0.25 or 0.20,object and 0.12 or 0.16,1)
+        end end
+        for _,u in ipairs(self.scenario.units) do local color=M.colors[self.scenario.colors[u.team]]
+            ui.drawRect(12+u.x*cell,52+u.y*cell,cell-0.6,cell-0.6,color[2],color[3],color[4],0.9)
+            ui.drawText(13+u.x*cell,53+u.y*cell,math.min(10,cell/2),(u.team==1 and 'A' or 'B')..u.id,1,1,1,1)
+        end
+    end
+    local gx,gy=self:pointerCell()
+    if self.phase=='prepare' and gx and not self.context then
+        local plan=self:placementPreview(gx,gy);self.previewInfo=plan
+        if plan.width and plan.height then self.lastPreviewInfo=plan end
+        for _,c in ipairs(plan.cells) do
+            local cx,cy,size
+            if self.native then
+                cx,cy=c.screenX,c.screenY
+                if not cx and type(api.battleCellToScreen)=='function' then cx,cy=api.battleCellToScreen(c.x,c.y) end
+                size=self.view.cellSize
+            elseif self.grid then
+                size=self.grid.cell;cx=self.grid.x+(c.x+0.5)*size;cy=self.grid.y+(c.y+0.5)*size
+            end
+            if cx and cy then
+                local color=c.status=='clear' and {0.15,0.75,0.40} or c.status=='out_of_bounds' and {0.95,0.15,0.72} or c.status=='unknown' and {0.92,0.65,0.15} or {0.95,0.18,0.12}
+                ui.drawRect(cx-size/2+1,cy-size/2+1,size-2,size-2,color[1],color[2],color[3],0.38)
+            end
+        end
+    end
+    ui.drawRect(0,H-38,W,38,0.035,0.045,0.055,0.97)
+    local rosterLabel=self.phase=='after' and 'Snapshot ' or 'Team '
+    local finalCounts=self.finalPlan and self.finalPlan.source~='unavailable'
+    self:button('team1',rosterLabel..'A: '..(self.phase=='after' and (finalCounts and self.finalPlan.teamA or '?') or M.count(self.scenario,1)),10,H-32,110,26,self.team==1 and {0.16,0.32,0.52} or nil)
+    self:button('team2',rosterLabel..'B: '..(self.phase=='after' and (finalCounts and self.finalPlan.teamB or '?') or M.count(self.scenario,2)),128,H-32,110,26,self.team==2 and {0.16,0.32,0.52} or nil)
+    if self.phase=='prepare' then self:button('native',self.native and 'Planning grid' or 'Battle map',248,H-32,122,26) end
+    self:button('diagnostics','Export Diagnostics',380,H-32,148,26)
+    self:button('back',self.moving and 'Cancel move' or 'Back',W-94,H-32,84,26)
+    ui.drawRect(0,0,W,38,0.035,0.045,0.055,0.98)
+    ui.drawText(10,22,10,self.phase=='after' and 'Final snapshot is read only. Right-click a captured survivor for native Inspect where available.' or self.moving and 'MOVE: right-click destination; Cancel move keeps the original.' or 'Right-click places. Existing unit: Inspect / Edit / Move / Copy / Delete.',1,1,0.9,1)
+    ui.drawText(10,5,10,self.message:sub(1,112),0.95,0.76,0.45,1)
+    if self.phase=='after' then
+        ui.drawRect(0,38,W,68,0.035,0.045,0.055,0.95)
+        self:button('results','Battle report',12,68,132,26);self:button('reset','Back to Sandbox',154,68,150,26);self:button('rematch','Rematch',314,68,110,26)
+        self:button('main','Main menu',434,68,120,26)
+        local status=self.finalPlan and self.finalPlan.source~='unavailable' and (self.finalPlan.complete and 'Complete unit/cell snapshot' or 'PARTIAL unit/cell snapshot') or 'Final snapshot unavailable'
+        ui.drawText(12,44,10,status..' after aftermath, before cleanup; effects not captured. Right-click survivor: Inspect.',1,0.9,0.7,1)
+        if self.finalContext then
+            local x,y=math.max(5,math.min(W-180,self.finalContext.px)),math.max(145,math.min(H-45,self.finalContext.py))
+            ui.drawRect(x-5,y-36,170,37,0.02,0.025,0.03,1);self:button('finalinspect','Inspect current native unit',x,y-30,160,26)
+        end
+        return
+    end
+    ui.drawText(12,H-57,11,(self.native and 'Native battle-map' or 'Compatibility planning grid')..' | '..(M.terrainNames[self.scenario.terrain] or 'Unknown'),1,0.9,0.7,1)
+    if self.previewInfo then
+        ui.drawText(12,H-73,9,self.previewInfo.label,1,0.9,0.7,1)
+        ui.drawText(12,H-87,9,'Partial only; native placement decides. Green clear / red blocked / pink outside / amber unknown.',1,0.9,0.7,1)
+    end
+    local selected=self.catalog.byId[self.selected]
+    ui.drawRect(p,38,300,304,0.035,0.045,0.055,0.94)
+    ui.drawRect(p,H-240,300,202,0.035,0.045,0.055,0.94)
+    ui.drawText(p+8,H-61,12,selected and Catalog.textLimit(selected.name,37,'...') or 'Select a unit below',1,0.87,0.6,1)
+    self:button('formation',kinds[self.formation]..' ('..self.n..')',p+8,H-96,230,25)
+    self:button('number','+',p+246,H-96,46,25)
+    self:button('fight','Start battle',p+8,H-131,284,29,{0.32,0.21,0.08})
+    self:button('save','Save',p+8,H-165,138,25);self:button('load','Load',p+154,H-165,138,25)
+    self:button('clear','Clear battlefield',p+8,H-198,178,25)
+    if self.snapshot then self:button('reset','Reset',p+194,H-198,98,25) end
+    self:button('unique','Multiple unique: '..(self.scenario.allowMultipleUnique and 'On' or 'Off'),p+8,H-232,284,25)
+    ui.drawText(p+8,322,11,'Units - select, then right-click map',0.9,0.9,0.85,1)
+    local searchLabel=self.search=='' and (self.searchFocused and 'Type to search...' or 'Search units...') or Catalog.textLimit(self.search,28,'...')
+    self.searchRect={x=p+8,y=285,w=234,h=27}
+    self:button('search',searchLabel..(self.searchFocused and ' |' or ''),p+8,285,234,27,self.searchFocused and {0.16,0.31,0.43} or nil)
+    self:button('searchclear','Clear',p+246,285,46,27)
+    local filterText='Filter: '..categories[self.category]..' | '..#self.filtered..' results'
+    if categories[self.category]=='ranged' and (self.catalog.rangedUnknown or 0)>0 then filterText='Ranged unavailable/partial: update Extender' end
+    self:button('filter',filterText,p+8,255,284,24)
+    for row=1,5 do local index=(self.page-1)*5+row;local item=self.filtered[index];local y=251-row*36
+        if item then
+            ui.drawRect(p+8,y,284,34,0.13,0.17,0.20,0.98)
+            ui.drawRect(p+10,y+2,34,30,0.065,0.085,0.10,1)
+            local drawn=type(ui.drawMonsterIconFit)=='function' and ui.drawMonsterIconFit(p+11,y+3,32,28,item.id)
+            if not drawn then ui.drawText(p+20,y+10,12,'?',0.65,0.7,0.75,1) end
+            ui.drawText(p+50,y+20,10,Catalog.textLimit(item.name,29,'...'),1,0.95,0.85,1)
+            ui.drawText(p+50,y+6,9,'#'..item.id..' | A '..M.count(self.scenario,1,item.id)..' / B '..M.count(self.scenario,2,item.id),0.7,0.75,0.8,1)
+            self:button('unit:'..index,'Select',p+240,y+5,50,24,item.id==self.selected and {0.18,0.34,0.5} or nil)
+        end
+    end
+    if #self.filtered==0 then ui.drawText(p+18,208,12,'No matching units. Clear search or filter.',0.95,0.85,0.65,1) end
+    self:button('prev','<',p+8,42,40,25);self:button('next','>',p+252,42,40,25)
+    ui.drawText(p+65,50,11,self.page..' / '..math.max(1,math.ceil(#self.filtered/5))..(type(ui.drawMonsterIconFit)=='function' and '' or ' | icon API missing'),0.8,0.8,0.8,1)
     if self.context then
-        local x,y=math.min(p-134,self.context.px),math.max(130,self.context.py)
-        ui.drawRect(x-5,y-124,138,124,0.02,0.025,0.03,1)
-        for i,label in ipairs({'Edit','Move','Copy','Delete'}) do self:button('context:'..label,label,x,y-i*28,128,25) end
+        local x,y=math.max(5,math.min(p-140,self.context.px)),math.max(194,math.min(H-45,self.context.py))
+        ui.drawRect(x-5,y-152,138,152,0.02,0.025,0.03,1)
+        for i,label in ipairs({'Inspect','Edit','Move','Copy','Delete'}) do self:button('context:'..label,label,x,y-i*28,128,25) end
     end
 end
 function U:pointerCell()
+    local px,py=self.api.get('uiPointerX'),self.api.get('uiPointerY')
+    if self:ownsPointer(px,py) then return end
+    if self.native and type(self.api.battleScreenToCell)=='function' then return self.api.battleScreenToCell(px,py) end
     if not self.grid then return end
-    local g=self.grid;local px,py=self.api.get('uiPointerX'),self.api.get('uiPointerY')
-    local x=math.floor((px-g.x)/g.cell);local y=19-math.floor((py-g.y)/g.cell)
+    local g=self.grid;local x=math.floor((px-g.x)/g.cell);local y=math.floor((py-g.y)/g.cell)
     if x>=0 and x<g.width and y>=0 and y<20 then return x,y end
 end
 function U:input(mouse)
+    if self.native and type(self.api.battleView)=='function' then self.view=self.api.battleView() or self.view end
     local freshLeft=mouse&1~=0 and self.lastMouse&1==0
     local freshRight=mouse&2~=0 and self.lastMouse&2==0
-    local x,y=self.api.get('uiPointerX'),self.api.get('uiPointerY')
+    local x,y=self.api.get('uiPointerX'),self.api.get('uiPointerY');local consumed=false
+    if self.releaseBarrier then
+        self.lastMouse=mouse;self.lastCell=nil;self.dragOrigin=nil;self.dragBlocked=true
+        if mouse&3==0 then self.releaseBarrier=nil;self.dragBlocked=false end
+        return true
+    end
+    if self.searchFocused and (freshLeft or freshRight) then
+        local r=self.searchRect
+        local inSearch=r and x>=r.x and x<r.x+r.w and y>=r.y and y<r.y+r.h
+        local clear=false
+        for _,b in ipairs(self.buttons) do if b.key=='searchclear' and x>=b.x and x<b.x+b.w and y>=b.y and y<b.y+b.h then clear=true end end
+        if not inSearch and not clear then self:setSearchFocus(false);self.dragBlocked=true;consumed=true end
+    end
+    if self.noticeText then
+        if freshLeft then for _,b in ipairs(self.buttons) do
+            if x>=b.x and x<b.x+b.w and y>=b.y and y<b.y+b.h then self.pending=b.key;break end
+        end end
+        self.lastMouse=mouse
+        return true
+    end
     if freshLeft then
         for i=#self.buttons,1,-1 do local b=self.buttons[i]
-            if x>=b.x and x<b.x+b.w and y>=b.y and y<b.y+b.h then self.pending=b.key;break end
+            if x>=b.x and x<b.x+b.w and y>=b.y and y<b.y+b.h then self.pending=b.key;consumed=true;break end
+        end
+        if not consumed and (self.context or self.finalContext) then self.context=nil;self.finalContext=nil;consumed=true end
+    end
+    if self.runtime.blocked then self.lastMouse=mouse;self.lastCell=nil;return true end
+    if self.searchFocused then self.lastMouse=mouse;return true end
+    local gx,gy=self:pointerCell()
+    if self.phase=='after' and mouse&3~=0 then
+        consumed=true
+        if freshRight and gx then
+            local entry=FinalView.at(self.finalPlan,gx,gy)
+            self.finalContext=entry and {entry=entry,px=x,py=y} or nil
         end
     end
-    if not self.native and self.phase=='prepare' and mouse&2~=0 then
-        local gx,gy=self:pointerCell()
-        if gx then
-            local u=M.at(self.scenario,gx,gy)
-            if freshRight and u and not self.moving then self.context={unit=u,px=x,py=y};self.dragBlocked=true
-            elseif self.moving then
-                if freshRight then self.pending={move=true,x=gx,y=gy} end
-            elseif not self.context and not self.dragBlocked and (freshRight or self.lastCell~=gx..':'..gy) then
-                self.pending={place=true,x=gx,y=gy};self.lastCell=gx..':'..gy
+    if self.phase=='prepare' and not self.runtime.blocked and mouse&2~=0 and gx then
+        consumed=true;local u=self:unitAt(gx,gy)
+        if freshRight and u and not self.moving then self.context={unit=u,px=x,py=y};self.dragBlocked=true;self.diag:record('context',{name=u.name,id=u.id})
+        elseif self.moving then
+            if freshRight then self.pending={move=true,x=gx,y=gy} end
+        elseif not self.context and not self.dragBlocked then
+            if freshRight then
+                local footprint=self:placementFootprint()
+                local stepX,stepY
+                if footprint then stepX,stepY=Preview.span(kinds[self.formation],self.n,footprint.width,footprint.height) end
+                self.dragOrigin={x=gx,y=gy,stepX=stepX,stepY=stepY};self.dragVisited={}
+            end
+            if self.dragOrigin then gx,gy=Preview.snap(gx,gy,self.dragOrigin,self.dragOrigin.stepX,self.dragOrigin.stepY) end
+            local key=gx..':'..gy
+            if (freshRight or self.lastCell~=key) and not (self.dragVisited and self.dragVisited[key]) then
+                self.pending={place=true,x=gx,y=gy};self.lastCell=key
+                if self.dragVisited then self.dragVisited[key]=true end
             end
         end
     end
-    if mouse&2==0 then self.lastCell=nil;self.dragBlocked=false end
+    -- Consume the complete left press, including frames after a modal/button
+    -- changes layout. Native battle controls must not receive its held tail.
+    if mouse&1~=0 then consumed=true end
+    if self:ownsPointer(x,y) and mouse&3~=0 then consumed=true end
+    if mouse&2==0 then self.lastCell=nil;self.dragBlocked=false;self.dragOrigin=nil;self.dragVisited=nil end
     self.lastMouse=mouse
+    if self.view and (freshRight or consumed and freshLeft) then
+        self.diag:record('pointer',{ui_x=x,ui_y=y,cell_x=gx,cell_y=gy,cell_size=self.view.cellSize,
+            camera_x=self.view.cameraX,camera_y=self.view.cameraY,screen_w=self.view.screenW,screen_h=self.view.screenH,team=self.team})
+    end
+    return consumed
+end
+function U:inspect(u)
+    self:setSearchFocus(false);self.context=nil;self.moving=nil;self.pending=nil
+    if type(self.runtime.inspect)~='function' then self:notice('Native instance Inspect requires the updated experimental API. No template card was substituted.');return false end
+    self.inNativeMenu=true
+    self.api.set('mouseButtons',(self.api.get('mouseButtons') or 0)&4)
+    local called,ok,candidate,details=pcall(self.runtime.inspect,self.runtime,self.scenario,u)
+    self.inNativeMenu=false;self.releaseBarrier=true;self.dragBlocked=true;self.lastCell=nil;self.dragOrigin=nil
+    self.api.set('mouseButtons',(self.api.get('mouseButtons') or 0)&4)
+    if not called then error(ok) end
+    if ok then
+        if type(candidate)~='table' then error('Verified native Inspect did not return its preserved scenario') end
+        self.scenario=candidate;self.message=details and details.mode=='read_only' and 'Native Inspect is read only; instance state verified' or 'Native instance Inspect closed; state verified'
+        self.diag:record('inspect',{model_id=u.id,native_id=self.runtime.live[u.id],accepted=1,
+            mode=details and details.mode or 'verified',changed=details and (details.changed==true or details.changed==1) and 1 or 0})
+        return true
+    end
+    self.message=tostring(candidate);self:notice(self.message)
+    return false
+end
+function U:inspectFinal()
+    local entry=self.finalContext and self.finalContext.entry
+    self.finalContext=nil;self.pending=nil;self:setSearchFocus(false)
+    if not entry then return false end
+    if not entry.row.inspectable or entry.row.inspectable==0 or type(self.api.inspectTestFieldFinalUnit)~='function' then
+        self:notice('This actor is visible in the final snapshot, but native cleanup removed or changed its live instance. Native Inspect is unavailable: '..tostring(entry.row.inspectReason or 'unverified instance'))
+        return false
+    end
+    self.inNativeMenu=true;self.api.set('mouseButtons',(self.api.get('mouseButtons') or 0)&4)
+    local called,ok,detail,nativeDetail=pcall(self.api.inspectTestFieldFinalUnit,entry.native,{readOnly=true})
+    self.inNativeMenu=false;self.releaseBarrier=true;self.dragBlocked=true;self.lastCell=nil
+    self.api.set('mouseButtons',(self.api.get('mouseButtons') or 0)&4)
+    if not called then error(ok) end
+    local verified=ok and type(detail)=='table' and detail.readOnly==true and detail.verified==true
+    self.diag:record('final_inspect',{native_id=entry.native,accepted=verified and 1 or 0,source='current native instance; final drawing is a timed snapshot',reason=verified and 'read only verified' or tostring(detail)})
+    if verified then self.message='Current native unit inspected read only; final snapshot remains unchanged.';return true end
+    if type(nativeDetail)=='table' and nativeDetail.verified==false then self.runtime:quarantine(self.snapshot or self.scenario,'final_inspect_unverified',nil,{native_id=entry.native,reason=detail}) end
+    self:notice('Native final-unit Inspect refused: '..tostring(detail));return false
 end
 function U:save()
     local name=self:prompt('Save scenario','File name (without .ini):')
-    if name then self.message=self.api.writeIni(name,M.encode(self.scenario,self.catalog.mods)) and 'Scenario saved: '..name or 'Save refused: invalid file name, value or quota' end
+    if name then
+        if name:lower()=='launcher-context' or name:lower():find('^diagnostics%-') then self:notice('This name is reserved for diagnostics. Choose another scenario name.');return end
+        local ok=self.api.writeIni(name,M.encode(self.scenario,self.catalog.mods))
+        self.message=ok and 'Scenario saved: '..name or 'Save refused: invalid file name, value or quota'
+        self.diag:record('save',{accepted=ok and 1 or 0,units=#self.scenario.units,terrain=self.scenario.terrain})
+        if not ok then local snapshot=self.runtime:snapshot(self.scenario);self.diag:failure('save',self.message,{},snapshot,snapshot,'unchanged') end
+    end
 end
 function U:load()
     local files={};local rows={{0,'Choose a saved scenario'}}
@@ -248,14 +710,26 @@ function U:load()
     local id=self:menu('Load scenario',rows)
     if not files[id] then return end
     local candidate,why=M.decode(self.api.readIni(files[id]),self.catalog,self.catalog.mods)
-    if not candidate then self.message=why;self:notice(why);return end
+    if not candidate then
+        local snapshot=self.runtime:snapshot(self.scenario);self.diag:failure('load',why,{},snapshot,snapshot,'unchanged')
+        self.message='Could not load scenario: '..Catalog.textLimit(tostring(why),140,'...')..'. Current setup kept.';self:notice(self.message);return
+    end
+    if candidate.terrain~=0 and not self.catalog.testFieldTerrains[candidate.terrain] then self:notice('This scenario needs the matching terrain API for '..(M.terrainNames[candidate.terrain] or 'this map')..'. Current setup kept.');return end
+    self.runtime.sourceScenarioFile=files[id]
     if self.runtime.open then
-        local old=self.scenario;local ok;ok,why=self.runtime:build(candidate)
-        if not ok then local restored,reason=self.runtime:build(old);self.message=why..(restored and '' or '; restore: '..tostring(reason));self:notice(self.message);return end
+        local ok;ok,why=self.runtime:build(candidate)
+        if not ok then
+            self.message=why
+            if self:hasSpellRepair() then self.message=self.message..' Current army kept. Return to battlefield setup, then choose Repair saved spell selection (copy).' end
+            self:notice(self.message);return
+        end
     end
     self.scenario=candidate;self.context=nil;self.moving=nil;self.copyTemplate=nil;self.message='Scenario content validated; native positions checked on Prepare'
+    self.diag:record('load',{units=#candidate.units,terrain=candidate.terrain})
 end
 function U:edit(u)
+    local ok,why=self.runtime:ready(self.scenario);if not ok then self:notice(why);return end
+    self.inNativeMenu=true
     while true do
         local unit=self.runtime.live[u.id]
         local ui=self.api.ui;ui.screenBegin('Edit '..u.name..' #'..u.id);ui.screenWidth(610);ui.sectionBegin('Native unit')
@@ -264,7 +738,7 @@ function U:edit(u)
         ui.text(2,'Items: inspect inventory and search item catalog')
         ui.text(0,'School level upgrades: unavailable (no supported base-level setter).')
         ui.text(999,'Done');ui.sectionEnd();ui.bindEscape(999);local id=ui.wait()
-        if id==999 then return elseif id==1 then self:spellEditor(u) elseif id==2 then self:itemBrowser(u) end
+        if id==999 then self.inNativeMenu=false;return elseif id==1 then self:spellEditor(u) elseif id==2 then self:itemBrowser(u) end
     end
 end
 function U:spellEditor(u)
@@ -297,12 +771,24 @@ function U:itemBrowser(u)
     end
 end
 function U:fight()
+    self:setSearchFocus(false)
+    if M.count(self.scenario,1)==0 or M.count(self.scenario,2)==0 then self:notice('Place at least one unit for each team before fighting.');return false end
+    local ready,why=self.runtime:ready(self.scenario);if not ready then self:notice(why);return false end
+    self.diag:record('battle_start',{units=#self.scenario.units,terrain=self.scenario.terrain})
     self.snapshot=M.copy(self.scenario);self.phase='fight';self.context=nil;self.moving=nil
     self.report:start(self.scenario,self.runtime);self.api.fightTestField();self.report:finish(self.scenario,self.runtime)
-    self.phase='after';self.native=true;self.report:export('last-battle')
+    self.phase='after';self.runtime.phase='after';self.native=true;self.finalContext=nil
+    self.finalPlan=FinalView.prepare(self.runtime.finalState)
+    local reportName,archiveWarning=self.report:archive()
+    self.message=reportName and 'Report archived: '..reportName..'.ini' or tostring(archiveWarning)
+    if reportName and archiveWarning then self.message=self.message..' | '..archiveWarning end
+    self.diag:record('battle_end',{winner=self.api.get('battleWinner'),round=self.api.get('battleRound')})
+    return true
 end
 function U:results()
-    local r=self.report.result;if not r then return end
+    local r=self.report.result;if not r then return 'controls' end
+    self:setSearchFocus(false)
+    self.inNativeMenu=true
     local winner=r.summary.winner==0 and 'Team A' or r.summary.winner==24 and 'Team B' or 'None / unavailable'
     local page=1;local types={};for _,row in pairs(r.types) do types[#types+1]=row end
     table.sort(types,function(a,b) return a.team==b.team and a.name<b.name or a.team<b.team end)
@@ -311,72 +797,139 @@ function U:results()
             {0,('A: %d start / %d lost / %d survive; B: %d / %d / %d'):format(r.teamA.start,r.teamA.losses,r.teamA.survivors,r.teamB.start,r.teamB.losses,r.teamB.survivors)}}
         for i=(page-1)*5+1,math.min(page*5,#types) do local t=types[i];rows[#rows+1]={0,('Team %d %s: %d lost / %d survive'):format(t.team,t.name,t.losses,t.survivors)} end
         rows[#rows+1]={0,'Damage attribution partial; complete cast log unavailable. Export includes native kills.'}
-        rows[#rows+1]={0,'Native final deployment unavailable. Recorded aftermath cells: '..(r.summary.aftermath_position_count or 0)..' (export).'}
-        rows[#rows+1]={1,'Previous'};rows[#rows+1]={2,'Next'};rows[#rows+1]={3,'Export report'};rows[#rows+1]={999,'Post-battle controls'}
+        rows[#rows+1]={0,r.summary.final_snapshot_source and ('Final view: '..r.summary.final_snapshot_source..'; units/cells complete: '..tostring(r.summary.final_snapshot_complete)..'; effects excluded.') or 'Final capture unavailable; aftermath observations alone are partial.'}
+        rows[#rows+1]={0,'The battle result is read only. Returning restores saved positions, spells and items.'}
+        rows[#rows+1]={1,'Previous report page'};rows[#rows+1]={2,'Next report page'};rows[#rows+1]={3,'Export report'}
+        rows[#rows+1]={999,'Back to Sandbox (restore pre-battle setup)'}
+        rows[#rows+1]={4,'Rematch (restore setup and fight again)'}
+        rows[#rows+1]={5,'View post-battle field (read only)'};rows[#rows+1]={6,'Main menu (keep setup and report)'}
         local id=self:menu('Battle report',rows)
-        if id==999 then return elseif id==1 then page=math.max(1,page-1) elseif id==2 then page=math.min(math.max(1,math.ceil(#types/5)),page+1)
+        if id==999 or id==4 or id==5 or id==6 then
+            self.inNativeMenu=false
+            return id==999 and 'restore' or id==4 and 'rematch' or id==5 and 'controls' or 'main'
+        elseif id==1 then page=math.max(1,page-1) elseif id==2 then page=math.min(math.max(1,math.ceil(#types/5)),page+1)
         elseif id==3 then local name=self:prompt('Export report','File name:');if name then self:notice(self.report:export(name) and 'Report exported as '..name..'.ini' or 'Export refused') end end
     end
 end
 function U:reset(rematch)
-    if not self.snapshot then return end
+    self:setSearchFocus(false)
+    if not self.snapshot then self:notice('No pre-battle setup is available. Current scenario was kept.');return false end
     local candidate=M.copy(self.snapshot);local ok,why=self.runtime:build(candidate)
-    if ok then self.scenario=candidate;self.phase='prepare';self.native=false;self.message='Original pre-battle setup restored';if rematch then self:fight();self:results() end
-    else self.message=why;self:notice(why) end
+    if ok then
+        self.scenario=candidate;self.phase='prepare';self.native=type(self.api.battleView)=='function';self.context=nil;self.moving=nil;self.copyTemplate=nil;self.finalPlan=nil;self.finalContext=nil
+        self.message='Original pre-battle setup restored; previous report kept'
+        self.diag:record(rematch and 'rematch' or 'reset',{units=#candidate.units});return true
+    end
+    self.message=why;self:notice(why);return false
+end
+function U:postBattle(action)
+    -- Each report returns an action. Rematches repeat this loop rather than
+    -- recursively opening another results/reset/fight call chain.
+    while true do
+        action=action or self:results()
+        if action=='main' then self:setSearchFocus(false);self.exitToMain=true;return false
+        elseif action=='controls' then return true
+        elseif action=='restore' then self:reset(false);return self.runtime.open
+        elseif action=='rematch' then
+            if not self:reset(true) or not self:fight() then return self.runtime.open end
+            action=nil
+        else return self.runtime.open end
+    end
 end
 function U:dispatch(action)
+    if action~='search' and action~='searchclear' then self:setSearchFocus(false) end
+    if self.runtime.blocked and action~='diagnostics' and action~='recover' and action~='back' and action~='noticeclose' and action~='spellrepair' then
+        self.message='Editing locked; export diagnostics and reopen the preserved setup.';self.pending=nil;return true
+    end
     if type(action)=='table' then
         if action.move then local ok,why=self.runtime:move(self.moving,action.x,action.y);self.message=ok and 'Moved; configuration preserved' or why;if ok then self.moving=nil;self.dragBlocked=true end
         elseif action.place then
-            local skipped,placed=0,0
-            for _,c in ipairs(M.cells(kinds[self.formation],self.n,action.x,action.y)) do
-                local ok,candidate=self.runtime:add(self.scenario,self.selected,self.team,c[1],c[2],self.copyTemplate)
-                if ok then self.scenario=candidate;placed=placed+1 else skipped=skipped+1;self.message=candidate end
+            local skipped,placed,lastReason=0,0,nil
+            local footprint=self:placementFootprint();local anchors,why=self:placementAnchors(action.x,action.y,footprint)
+            if not anchors then self.message=why;return true end
+            for _,c in ipairs(anchors) do
+                local ok,candidate=self.runtime:add(self.scenario,self.selected,self.team,c.x,c.y,self.copyTemplate)
+                if ok then self.scenario=candidate;placed=placed+1 else skipped=skipped+1;lastReason=candidate end
+                if self.runtime.blocked then self.context=nil;self.moving=nil;self.copyTemplate=nil;break end
                 if not self.runtime.open then self:notice(candidate);return false end
             end
-            self.message='Placed '..placed..'; skipped '..skipped..(skipped>0 and ' (occupied / native collision / restoration restriction)' or '')
+            self.message='Placed '..placed..'; skipped '..skipped..(lastReason and '. '..lastReason or '')
+            self.diag:record('formation',{kind=kinds[self.formation],count=self.n,placed=placed,skipped=skipped,team=self.team,
+                footprint_width=footprint and footprint.width or 'unknown',footprint_height=footprint and footprint.height or 'unknown',
+                footprint_source=footprint and footprint.source or 'unavailable',spacing='footprint-positive-xy'})
         end;return true
     end
     local prefix,value=action:match('^(%w+):(.+)$')
-    if prefix=='unit' then local m=self.filtered[tonumber(value)];if m then self.selected=m.id;self.copyTemplate=nil;self.message='Selected '..m.name end
+    if prefix=='unit' then local m=self.filtered[tonumber(value)];if m then self.selected=m.id;self.copyTemplate=nil;self.message='Selected '..m.name;self.diag:record('select',{monster=m.id,name=m.name}) end
     elseif prefix=='context' then
         local u=self.context.unit;self.context=nil
-        if value=='Edit' then self:edit(u) elseif value=='Move' then self.moving=u;self.message='Right-click target; Back cancels move'
-        elseif value=='Copy' then self.selected=u.monster;self.copyTemplate=M.copy(u);self.team=u.team;self.message='Copy selected; native starting spells must match'
+        if value=='Inspect' then self:inspect(u) elseif value=='Edit' then self:edit(u) elseif value=='Move' then self.moving=u;self.message='Right-click target; Back cancels move'
+        elseif value=='Copy' then self.selected=u.monster;self.copyTemplate=M.copy(u);self.team=u.team;self.message='Copy selected; right-click a free cell to preserve this configuration';self.diag:record('copy_selected',{id=u.id,name=u.name})
         elseif value=='Delete' then
-            if M.count(self.scenario,u.team)<=1 then M.remove(self.scenario,u.id);self.message='Unit deleted. Add a unit to each team before preparing again.';return false
-            else local candidate=M.copy(self.scenario);M.remove(candidate,u.id);local ok,why=self.runtime:build(candidate)
-                if ok then self.scenario=candidate else self.runtime:build(self.scenario);self.message=why end
-            end
+            local ok,candidate=self.runtime:remove(self.scenario,u)
+            if ok then self.scenario=candidate;self.message='Unit removed; other units kept' else self.message=candidate;self:notice(candidate) end
         end
     elseif action=='back' then if self.moving then self.moving=nil;self.message='Move cancelled; original cell retained' elseif self.context then self.context=nil else return false end
-    elseif action=='team1' then self.team=1 elseif action=='team2' then self.team=2
-    elseif action=='native' then self.native=not self.native
+    elseif action=='main' then self.exitToMain=true;return false
+    elseif action=='team1' then self.team=1;self.diag:record('team',{team=1}) elseif action=='team2' then self.team=2;self.diag:record('team',{team=2})
+    elseif action=='native' then
+        if type(self.api.battleView)=='function' then self.native=not self.native else self:notice('Direct battle-map interaction requires the experimental editor API. The labelled planning grid remains available.') end
+    elseif action=='noticeclose' then self.noticeText=nil;self.dragBlocked=true
+    elseif action=='diagnostics' then self:exportDiagnostics()
+    elseif action=='spellrepair' then self:repairSpells()
+    elseif action=='recover' then
+        local ok,candidate=self.runtime:recover()
+        if ok then self.scenario=candidate;self.context=nil;self.moving=nil;self.copyTemplate=nil;self.noticeText=nil;self.message='Preserved setup reopened and verified.'
+        else self:notice(candidate) end
     elseif action=='browse' then self:browse()
     elseif action=='formation' then self.formation=self.formation%4+1;self.n=self.formation==4 and 2 or 1
     elseif action=='number' then self.n=self.formation==4 and (self.n==4 and 2 or self.n+1) or (self.n%15+1)
-    elseif action=='search' then local q=self:prompt('Search units','Name contains:');if q then self.search=q;self.page=1;self:refresh() end
+    elseif action=='search' then self:setSearchFocus(true)
+    elseif action=='searchclear' then self.search='';self.page=1;self:refresh();self.diag:record('search',{query_length=0,matches=#self.filtered,source='clear'})
+    elseif action=='unique' then self:toggleMultipleUnique()
     elseif action=='filter' then self.category=self.category%#categories+1;self.page=1;self:refresh()
     elseif action=='prev' then self.page=self.page-1;self:refresh() elseif action=='next' then self.page=self.page+1;self:refresh()
-    elseif action=='fight' then self:fight();self:results()
-    elseif action=='results' then self:results()
+    elseif action=='fight' then if self:fight() then return self:postBattle() end
+    elseif action=='results' then return self:postBattle()
+    elseif action=='finalinspect' then self:inspectFinal()
     elseif action=='save' then self:save() elseif action=='load' then self:load()
-    elseif action=='reset' then self:reset(false) elseif action=='rematch' then self:reset(true)
-    elseif action=='clear' then self.scenario.units={};self.scenario.nextId=1;self.message='All units removed';return false end
+    elseif action=='reset' then self:reset(false) elseif action=='rematch' then return self:postBattle('rematch')
+    elseif action=='clear' then
+        if not self.runtime:emptyEditorAvailable() then self:notice('A completely empty battlefield requires the updated experimental empty-editor API. Current setup kept.');return self.runtime.open end
+        local units=M.copy(self.scenario.units)
+        for _,u in ipairs(units) do
+            local ok,candidate=self.runtime:remove(self.scenario,u)
+            if not ok then self:notice(candidate);return self.runtime.open end
+            self.scenario=candidate
+        end
+        self.context=nil;self.moving=nil;self.copyTemplate=nil;self.dragBlocked=true
+        self.message='Battlefield is empty. Place units on either team; a battle needs at least one unit per team.'
+        self.diag:record('clear',{units=#self.scenario.units,team_a=M.count(self.scenario,1),team_b=M.count(self.scenario,2)})
+    end
     return self.runtime.open
 end
-function U:prepare()
+function U:prepare(nativeDeployment,reuseVerified)
+    self.previewInfo=nil;self.lastPreviewInfo=nil;self.finalPlan=nil;self.finalContext=nil
     if not self.drawHook or not self.waitHook then self:notice('Required native battle overlay/input hooks are unavailable on this extender/platform.');return end
-    local ok,why=self.runtime:build(self.scenario)
+    local candidate=nativeDeployment and M.copy(self.scenario) or self.scenario
+    local ok,why
+    if reuseVerified then ok,why=self.runtime:ready(candidate) else ok,why=self.runtime:build(candidate,nativeDeployment) end
     if not ok then self:notice(why);return end
-    self.phase='prepare';self.native=false;self.pending=nil;self.lastMouse=0;self.escapeHeld=false
+    self.scenario=candidate
+    self.phase='prepare';self.native=type(self.api.battleView)=='function';self.pending=nil;self.lastMouse=0;self.escapeHeld=false
+    self.diag:record('open_field',{terrain=self.scenario.terrain,native=self.native and 1 or 0,units=#self.scenario.units})
     local success,err=xpcall(function()
         while self.runtime.open do
             self.api.drawTestField()
             if self.pending then local action=self.pending;self.pending=nil;if not self:dispatch(action) then break end end
         end
     end,function(e)return tostring(e) end)
-    self.runtime:close();self.phase='menu';self.context=nil;self.moving=nil
-    if not success then self:notice('Sandbox stopped safely: '..err) end
+    if not success then self.diag:failure('editor',err,{},self.runtime:snapshot(self.scenario),nil,'scenario kept; native field closed') end
+    self:setSearchFocus(false);local closed,closeWhy=self.runtime:close();self.phase='menu';self.context=nil;self.moving=nil
+    if closed==false then
+        self.exitToMain=nil;self.message='Native cleanup was not verified; preserved setup and report kept.'
+        self.diag:record('field_close',{verified=0,reason=tostring(closeWhy)})
+        self:notice(self.message..' Export Diagnostics, then restart the isolated game. '..tostring(closeWhy))
+    elseif not success then self:notice('The editor stopped. Your scenario is kept; Export Diagnostics for details.') end
 end
 return U

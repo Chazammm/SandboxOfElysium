@@ -1,0 +1,246 @@
+{
+  "scope": "Sanitized test summary, not raw user diagnostics or a complete engine snapshot.",
+  "development_version": "0.1.0+editor.5",
+  "game_version": "CoE5 5.43 Windows x64",
+  "extender_dll_sha256": "63b293fb0a694cf6a528cbf66d9aa2e561c80b38337f1fb7e40b154ba64a8bdd",
+  "tested_sandbox_source_sha256": "409c10230c2853cd68a2227c2a345d5a001e30637cd720f66240cd2465c796ed",
+  "publication_changes": "Version/description metadata, documentation, curated evidence and packaging; tested Lua runtime unchanged.",
+  "fresh_public_screenshots": {
+    "scope": "Newly captured grouped menu, native CrabCult card and Ranged list only; not photographs of the earlier battles.",
+    "sandbox_source_sha256": "272fcca5bf2aeab186eff74cf405c8888493ea1fb4b984ca92c0799c5ab1a6c3",
+    "game_resolution": "1200x900",
+    "active_test_mods": 4,
+    "crabcult_active": true,
+    "earlier_image_files": "Not reliably associated with their filenames; retained locally and excluded from publication."
+  },
+  "offline_lua": {
+    "model": 20,
+    "editor": 10,
+    "integrity": 13,
+    "interface": 18,
+    "caster": 8,
+    "preview": 15,
+    "battlefield": 13,
+    "total": 97
+  },
+  "native_groups": {
+    "empty-editor-results.ini": {
+      "configured_caster_survives_other_removals_and_reuse": {
+        "status": "PASS"
+      },
+      "empty_and_one_sided_guard_save_load": {
+        "status": "PASS"
+      },
+      "empty_editor_unique_guard_before_allocation": {
+        "status": "PASS"
+      },
+      "empty_to_battle_reset_rematch": {
+        "status": "PASS"
+      },
+      "legacy_commander_slot_reuse_does_not_attach_empty_actors": {
+        "status": "PASS"
+      }
+    },
+    "terrain-expansion-results.ini": {
+      "terrain0": {
+        "status": "PASS"
+      },
+      "terrain107": {
+        "status": "PASS"
+      },
+      "terrain117": {
+        "status": "PASS"
+      },
+      "terrain12": {
+        "status": "PASS"
+      },
+      "terrain2": {
+        "status": "PASS"
+      }
+    },
+    "battlefield-results.ini": {
+      "actual_user_ten_unit_setup_final_view": {
+        "status": "PASS"
+      },
+      "explicit_known_summons_survive_to_final_boundary": {
+        "status": "PASS"
+      },
+      "six_original_gods_final_snapshot": {
+        "status": "PASS"
+      },
+      "unit_filters_main_menu_and_native_field": {
+        "status": "PASS"
+      }
+    },
+    "editing-results.ini": {
+      "diagnostics_error_export_no_overwrite": {
+        "status": "PASS"
+      },
+      "incremental_priestess_both_teams_and_copy_move": {
+        "status": "PASS"
+      },
+      "native_projection_and_terrain": {
+        "status": "PASS"
+      },
+      "native_spell_validation_and_primary_guard": {
+        "status": "PASS"
+      },
+      "save_load_rollback_reset_rematch_priestess": {
+        "status": "PASS"
+      }
+    },
+    "placement-results.ini": {
+      "forest_obstacle_rejection_and_afterwards_placement": {
+        "status": "PASS"
+      },
+      "injected_cleanup_failure_locks_then_explicit_recovery": {
+        "status": "PASS"
+      },
+      "large_placement_delete_reuse_spells_items": {
+        "status": "PASS"
+      },
+      "unique_guards_prevent_alias_before_mutation": {
+        "status": "PASS"
+      }
+    },
+    "inspector-results.ini": {
+      "guarded_memorization_atomic_and_instance_independent": {
+        "status": "PASS"
+      },
+      "invalid_original_rejected_explicit_copy_repaired": {
+        "status": "PASS"
+      },
+      "readonly_footprints_and_frame_preflight": {
+        "status": "PASS"
+      }
+    }
+  },
+  "final_captures": {
+    "six_original_gods_final_snapshot_capture": {
+      "source": "post_aftermath_before_upkeep",
+      "complete": "1",
+      "scene_complete": "0",
+      "actors_alive_at_boundary": "2",
+      "on_field": "2",
+      "living_new_combat_actors": "0",
+      "later_removed": "0",
+      "changed_owners_or_monsters": "0",
+      "round": "16",
+      "winner": "0"
+    },
+    "actual_user_ten_unit_setup_final_view_capture": {
+      "source": "post_aftermath_before_upkeep",
+      "complete": "1",
+      "scene_complete": "0",
+      "actors_alive_at_boundary": "17",
+      "on_field": "17",
+      "living_new_combat_actors": "12",
+      "later_removed": "12",
+      "changed_owners_or_monsters": "0",
+      "round": "7",
+      "winner": "24"
+    },
+    "explicit_known_summons_survive_to_final_boundary_capture": {
+      "source": "post_aftermath_before_upkeep",
+      "complete": "1",
+      "scene_complete": "0",
+      "actors_alive_at_boundary": "9",
+      "on_field": "9",
+      "living_new_combat_actors": "8",
+      "later_removed": "8",
+      "changed_owners_or_monsters": "0",
+      "round": "5",
+      "winner": "24"
+    }
+  },
+  "user_rematch": {
+    "round": "7",
+    "winner": "24",
+    "complete": "1",
+    "source": "post_aftermath_before_upkeep"
+  },
+  "vanilla_filters": {
+    "All": "1851",
+    "animal": "138",
+    "demonic": "60",
+    "flying": "233",
+    "human": "434",
+    "ranged": "714",
+    "unavailable": "0",
+    "undead": "198"
+  },
+  "crabcult": {
+    "fixture_names": [
+      "Shorebound Initiate",
+      "Abyssal Shellback"
+    ],
+    "definition_sha256": "4904be0f2c659075e8449f32cd3024f5429b9a24ea2aaef1b9207685bb1ba5a1",
+    "native_result": {
+      "detail": "actual native calls; not an offline simulation",
+      "status": "PASS"
+    },
+    "native_capture": {
+      "source": "post_aftermath_before_upkeep",
+      "complete": "1",
+      "scene_complete": "0",
+      "actors_alive_at_boundary": "2",
+      "on_field": "2",
+      "living_new_combat_actors": "0",
+      "later_removed": "0",
+      "changed_owners_or_monsters": "0",
+      "round": "4",
+      "winner": "0"
+    },
+    "filters": {
+      "All": "1879",
+      "animal": "157",
+      "demonic": "60",
+      "flying": "233",
+      "human": "443",
+      "ranged": "721",
+      "unavailable": "0",
+      "undead": "198"
+    },
+    "visible_battle": {
+      "round": 3,
+      "winner": "A",
+      "team_a_survivors": 2,
+      "team_b_survivors": 0
+    },
+    "missing_required_mod_load": "Refused by name; current setup unchanged."
+  },
+  "visible_large_battles": {
+    "rounds": [
+      16,
+      16
+    ],
+    "winner": "A",
+    "survivors": [
+      2,
+      2
+    ],
+    "current_native_inspect": {
+      "hp": 70,
+      "max_hp": 161,
+      "kills": 10
+    },
+    "back_and_reset": "PASS"
+  },
+  "limitations": [
+    "Not a retained complete native scene; effects/projectiles/animations excluded.",
+    "Natural conversions/transformations not observed; controlled C coverage is separate.",
+    "Neutral land subset only; no water, fort, siege, special-plane or campaign-equivalence claim.",
+    "No general guarantee for arbitrary mod scripts, full instance/RNG snapshots or all camera/drag combinations."
+  ],
+  "preservation": {
+    "original_files_unchanged": 60,
+    "regular_control_files_unchanged": 3,
+    "original_files_missing": 0,
+    "raw_diagnostics_published": false
+  },
+  "screenshots": {
+    "menu-mods-2026-11-14/visible-grouped-setup-default-final.png": "3776f1004566a3d15dd5ef03ea559300229564ab687e839604effa74f4caa2b9",
+    "menu-mods-2026-11-14/visible-mod-native-inspect.png": "1c62003cfa3e8fecfeb5566af68818956f5e0e3507b2497a79022f8f2f9372ce",
+    "menu-mods-2026-11-14/visible-ranged-721-results.png": "baffd4b2858110b8deb16e0b777a2ed4004766f547742e6039aba5311733c4be"
+  }
+}

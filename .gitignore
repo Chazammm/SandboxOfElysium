@@ -2,3 +2,11 @@ private/
 dist/
 __pycache__/
 *.pyc
+# Full local game-test captures may contain personal paths or user diagnostics.
+# Only reviewed summaries/screenshots in docs/public-evidence are published.
+docs/evidence/
+*.dll
+*.exe
+*.o
+*.obj
+*.log

@@ -1,2 +1,2 @@
 icon "banner.tga"
-description "SandboxOfElysium: experimental battle sandbox. Requires CoE5SE 3.3.0."
+description "SandboxOfElysium editor.5: development battle sandbox. Requires the separate experimental CoE5SE 3.4.0 with Sandbox API extensions."

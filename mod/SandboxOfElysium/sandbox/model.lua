@@ -1,10 +1,13 @@
 local M = {}
+-- Identity bindings observed in the loaded vanilla terrain table. Availability
+-- still comes from the separate extender's verified capability list.
+M.terrainNames={[0]='Plain',[2]='Forest',[12]='Mountains',[107]='Swamp',[117]='Desert'}
 function M.copy(value)
     if type(value) ~= 'table' then return value end
     local out = {}; for k,v in pairs(value) do out[k] = M.copy(v) end; return out
 end
 function M.new()
-    return {version=1, terrain=0, size='Native automatic', colors={1,2}, units={}, nextId=1}
+    return {version=1, terrain=0, size='Native automatic', colors={1,2}, allowMultipleUnique=false, units={}, nextId=1}
 end
 M.colors = {
     {'Blue',0.15,0.40,1}, {'Red',1,0.18,0.16}, {'Green',0.20,0.8,0.25},
@@ -36,7 +39,7 @@ function M.remove(s,id)
     for i,u in ipairs(s.units) do if u.id==id then table.remove(s.units,i); return u end end
 end
 function M.encode(s,mods)
-    local t={scenario={schema=1,terrain=s.terrain,size=s.size,a_color=s.colors[1],b_color=s.colors[2],count=#s.units},mods={}}
+    local t={scenario={schema=1,terrain=s.terrain,size=s.size,a_color=s.colors[1],b_color=s.colors[2],allow_multiple_unique=s.allowMultipleUnique and 1 or 0,count=#s.units},mods={}}
     for i,name in ipairs(mods) do t.mods[tostring(i)]=name end
     for i,u in ipairs(s.units) do
         local row={monster=u.monster,name=u.name,team=u.team,x=u.x,y=u.y,item_count=#u.items,spell_count=#u.spells}
@@ -56,11 +59,19 @@ end
 function M.decode(t,catalog,activeMods)
     if type(t)~='table' or type(t.scenario)~='table' then return nil,'Missing scenario section' end
     local h=t.scenario
-    if tonumber(h.schema)~=1 or tonumber(h.terrain)~=0 or h.size~='Native automatic' then return nil,'Unsupported scenario schema, terrain or field size' end
+    local terrain=integer(h.terrain,0,100000)
+    if tonumber(h.schema)~=1 or not M.terrainNames[terrain] or h.size~='Native automatic' then return nil,'Unsupported scenario schema, terrain or field size' end
+    local expected=M.terrainNames[terrain]
+    if not catalog.terrainById or not catalog.terrainById[terrain] or catalog.terrainById[terrain].name~=expected then return nil,'Required native terrain unavailable or changed: '..expected end
     local n=integer(h.count,0,2000); if not n then return nil,'Invalid unit count (maximum 2000)' end
     local mods={}; for _,name in ipairs(activeMods) do mods[name]=true end
     for _,name in pairs(t.mods or {}) do if not mods[name] then return nil,'Required active mod missing: '..name end end
-    local s=M.new(); s.colors={integer(h.a_color,1,7),integer(h.b_color,1,7)}
+    local s=M.new();s.terrain=terrain; s.colors={integer(h.a_color,1,7),integer(h.b_color,1,7)}
+    if h.allow_multiple_unique~=nil then
+        local mode=integer(h.allow_multiple_unique,0,1)
+        if mode==nil then return nil,'Invalid multiple-unique option' end
+        s.allowMultipleUnique=mode==1
+    end
     if not s.colors[1] or not s.colors[2] then return nil,'Invalid team color' end
     for i=1,n do
         local r=t['unit'..i]; if type(r)~='table' then return nil,'Missing unit '..i end

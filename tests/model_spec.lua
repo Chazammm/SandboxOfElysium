@@ -14,7 +14,7 @@ test('all formations and clamp',function()
     assert(#M.cells('Horizontal Row',99,0,0)==15)
     local c=M.cells('Square',2,3,4);assert(c[1][1]==3 and c[4][1]==4 and c[4][2]==5)
 end)
-local cat={byId={[13]={name='Spearman'},[42]={name='Wizard'}},itemNames={Ring=1},spellKeys={['2:Spark']=2,['3:Spark']=3}}
+local cat={byId={[13]={name='Spearman'},[42]={name='Wizard'}},itemNames={Ring=1},spellKeys={['2:Spark']=2,['3:Spark']=3},terrainById={[0]={name='Plain'},[2]={name='Forest'}}}
 local s=M.new();local a=M.add(s,13,'Spearman',1,2,3);local b=M.add(s,42,'Wizard',2,9,3)
 b.items={'Ring'};b.spells={'2:Spark'};b.baseline={known={'2:Spark'}}
 test('copies preserve configuration without aliasing',function()
@@ -47,5 +47,15 @@ test('unsupported terrain, schema and size rejected',function()
     for _,key in ipairs({'terrain','schema','size'}) do local t=M.encode(s,{});t.scenario[key]='unsupported';assert(not M.decode(t,cat,{})) end
 end)
 test('empty scenario remains empty',function() local t=assert(M.decode(M.encode(M.new(),{}),cat,{}));assert(#t.units==0) end)
+test('Forest survives scenario roundtrip',function() local source=M.copy(s);source.terrain=2;local t=assert(M.decode(M.encode(source,{}),cat,{}));assert(t.terrain==2) end)
+test('missing or changed Forest is rejected',function() local source=M.copy(s);source.terrain=2;local c=M.copy(cat);c.terrainById[2].name='Different';assert(not M.decode(M.encode(source,{}),c,{})) end)
+test('legacy extender refuses Forest before touching an open field',function()
+    local R=require('sandbox.runtime');local r=R.new({},cat);r.open=true
+    local ok,why=r:build({terrain=2});assert(not ok and why:find('experimental'));assert(r.open)
+end)
+test('incompatible terrain capability reply is refused without engine calls',function()
+    local R=require('sandbox.runtime');local r=R.new({testFieldTerrains=function()return 'incompatible' end},cat)
+    local ok,why=r:build({terrain=2});assert(not ok and why:find('experimental'))
+end)
 test('counts remain separate even with identical colors',function() assert(M.count(s,1,13)==1 and M.count(s,2,13)==0);assert(M.count(s)==2) end)
-print(count..' model tests passed (outside game; no extender API simulated)')
+print(count..' model/guard tests passed (outside game; no native battles simulated)')

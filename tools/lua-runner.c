@@ -15,6 +15,7 @@ int main(int argc,char **argv) {
     luaL_requiref(L,"table",luaopen_table,1);lua_pop(L,1);
     luaL_requiref(L,"string",luaopen_string,1);lua_pop(L,1);
     luaL_requiref(L,"math",luaopen_math,1);lua_pop(L,1);
+    luaL_requiref(L,"utf8",luaopen_utf8,1);lua_pop(L,1);
     int status=luaL_loadfile(L,argv[1]);if(!status)status=lua_pcall(L,0,LUA_MULTRET,0);
     if(status)fprintf(stderr,"%s\n",lua_tostring(L,-1));lua_close(L);return status?1:0;
 }
