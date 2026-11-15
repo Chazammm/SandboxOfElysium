@@ -7,7 +7,11 @@ local function fail(code,details,state)
     return false,code,details,state
 end
 function I.signature(r,id)
-    local items={};for slot=0,7 do items[#items+1]=tostring(r.api.get('unitItem',id,slot)) end
+    local items={};for slot=0,type(r.api.testFieldLoadoutState)=='function' and 19 or 7 do items[#items+1]=tostring(r.api.get('unitItem',id,slot)) end
+    if type(r.api.testFieldLoadoutState)=='function' then
+        local state=r.api.testFieldLoadoutState(id)
+        if type(state)=='table' then for _,row in ipairs(state.schools or {}) do items[#items+1]='school:'..row.path..':'..row.base end end
+    end
     return table.concat({tostring(r.api.get('unitMonster',id)),tostring(r.api.get('unitOwner',id)),tostring(r.api.get('unitHp',id)),
         table.concat(r:spellList(id,'unitKnownSpell',59),'|'),table.concat(r:spellList(id,'unitMemorizedSpell',29),'|'),table.concat(items,',')},';')
 end
@@ -60,6 +64,10 @@ function I.inspect(r,s,positions,previous,configuration)
         end end
         signatures[id]=I.signature(r,id)
         if configuration~=false and u.baseline then
+            if u.equipment then
+                local matched,why=require('sandbox.loadout').matches(r,u,id)
+                if not matched then return fail('saved_loadout_mismatch',{model_id=u.id,native_id=id,reason=why},state) end
+            end
             local actualItems,savedItems=r:inventory(id),{}
             for _,item in ipairs(u.items or {}) do savedItems[#savedItems+1]=item end
             table.sort(actualItems);table.sort(savedItems)

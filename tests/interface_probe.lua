@@ -170,6 +170,7 @@ else
         local spell=godA.spells[1];assert(spell,'God has no memorized spell for independence test')
         assert(r:memorize(godA,spell,false),'God spell edit refused')
         api.giveItem(r.live[godA.id],'A Chest Full of Fire');godA.items=r:inventory(r.live[godA.id]);assert(#godA.items>0,'God item not assigned')
+        if godA.equipment then local L=require('sandbox.loadout');L.capture(r,godA,assert(L.read(r,r.live[godA.id])))end
         assert(#priest.spells>0 and r:memorize(priest,priest.spells[1],false),'custom priest state unavailable')
         before=checked(r,s);assert(before.signatures[r.live[godB.id]]==godBState,'editing God A changed God B')
         local godTemplate=M.copy(godA);local godOld=r.live[godA.id];local ok,candidate=r:remove(s,godA);assert(ok,tostring(candidate));s=candidate

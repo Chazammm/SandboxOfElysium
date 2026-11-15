@@ -11,7 +11,7 @@ if(Test-Path -LiteralPath $zip){throw "Package already exists; kept unchanged: $
 # evidence and reviewed docs/public-evidence remain eligible. No private tree.
 $files=@(& git -C $root ls-files --cached --others --exclude-standard -- mod docs tests tools)
 if($LASTEXITCODE){throw 'Git file inventory failed'}
-$files+=@('README.md','LICENSE','MODLOG.md','MODDING_PLAN.md','CHANGELOG.md','VERSION','SandboxOfElysium-Testen.bat')
+$files+=@('README.md','INSTALLATION.md','LICENSE','MODLOG.md','MODDING_PLAN.md','CHANGELOG.md','VERSION','SandboxOfElysium-Testen.bat')
 $stage=Join-Path $out ('stage-'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $stage | Out-Null
 foreach($relative in ($files|Sort-Object -Unique)){

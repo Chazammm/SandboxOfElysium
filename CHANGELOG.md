@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased — editor.8 explicit cursed removal, 2026-11-15
+
+- Permit explicitly confirmed removal of one held cursed item through a capability-gated, identity/position/item-bound native transaction. Keep ordinary cursed replacement protected; never change a shared item definition.
+- Support removing an existing eye/heart implant without healing its permanent native injuries. Keep new implants unsupported, and verify the native organ-injury mask on success and rollback.
+- Preserve the live actor, exact known/memorized spells and other actors. Refuse bonus removal if it invalidates memorization; the user chooses which spells to deselect.
+- Reconstruct saved supported equipment/spells even when a fresh actor has unwanted random cursed starting items. Existing implant layout restoration cannot add another implant. Full native injury persistence remains unsupported and is documented.
+- Retain Select-to-deselect. Correct two placement-test fixtures to explicitly select their intended unit. See docs/TEST-CURSED-2026-11-15.md for actual diagnostic replay, visible/native evidence and limitations. No Extender binary is bundled.
+
+## Unreleased — editor.7 battlefield configuration window, 2026-11-15
+
+- Follow-up: clicking Select again on the same unit/item clears its selection. No selected unit means no placement or preview; existing-unit context/Inspect stays available.
+- Keep configuration on the map: Units/Items catalog tabs, live item search and slot/source filters, native item icons/card, right-click equip, anatomical choice and explicit replacement/removal.
+- Add a draggable, resizable, clamped per-instance window with Items / Magic Schools & Spells / Name. Consume its pointer/text input without editing the map; keep genuine native Inspect read-only.
+- Add Modded Items and Modded schools filters backed by observed accepted loaded-definition writes in the separate Extender. Include native schools with observed mod spells; retain Unknown origin and avoid numeric-ID guesses or full provenance claims.
+- Adjust existing base levels 1–3, preserve higher known spells, refuse invalid memorization unchanged, and unlock eligible spells through the selected base level without memorizing. Exact reconstruction supports formerly higher known spells without randomization.
+- Persist optional individual Sandbox display labels separately from native names/type identity. Existing placement, unique copies, empty editor and exact configuration recovery remain guarded.
+- See docs/TEST-PANEL-2026-11-15.md for visible/native/offline evidence, failed candidates and limitations. Separate local Extender only; no binary distribution, release, PR or push.
+
+## Unreleased — editor.6 equipment and base schools, 2026-11-15
+
+- Add anatomical equipment positions, item name/slot search, identity-bound explicit replacement/removal and native compatibility/readback through the separate local Extender.
+- Increase existing actual base schools up to level 3, with native bonuses kept separate; learn spells without replacing random originals, and select memorization under native limits. Native Inspect reflects the configuration.
+- Add schema 2 positions/item IDs and base-school identities; preserve exact known/memorized order through configured Copy/Move/Save/Load/Reset/Rematch. Retain schema 1 and fail closed on unavailable APIs or ambiguous legacy items.
+- Require complete twenty-position readback and quarantine unverified rollback or false success; extend bounded diagnostics with configuration stage, identity, base/template/bonus/effective levels and rollback status.
+- Add private native mod/expanded-slot/duplicate-spell probes and 16 offline identity/persistence/recovery contracts. See docs/TEST-LOADOUT-2026-11-15.md for actual acceptance and unsupported cases. No Extender binary distribution, release, PR or push.
+
 ## Unreleased — editor.5 final snapshot and empty editor, 2026-11-14
 
 - Capture actual native unit/cell state after aftermath and before cleanup in the separate Extender; draw verified living survivors and summons as a read-only snapshot with native footprints and owners. Distinguish partial coverage and current-record Inspect from a retained full native scene.

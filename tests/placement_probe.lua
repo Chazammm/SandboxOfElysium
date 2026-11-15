@@ -104,6 +104,7 @@ else
         s,riderA=add(r,s,202,2,16,14);s,riderB=add(r,s,203,2,16,11)
         s,priest=add(r,s,208,1,5,4)
         api.giveItem(r.live[priest.id],'A Chest Full of Fire');priest.items=r:inventory(r.live[priest.id])
+        if priest.equipment then local L=require('sandbox.loadout');L.capture(r,priest,assert(L.read(r,r.live[priest.id])))end
         assert(#priest.items>0);assert(r:memorize(priest,priest.spells[1],false))
         local original=checked(r,s)
         for i=1,6 do

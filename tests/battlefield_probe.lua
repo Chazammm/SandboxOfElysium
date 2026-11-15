@@ -76,6 +76,11 @@ if enabled('filters')then
         local closed,why=r:close();assert(closed,why)
     end)
 end
+if enabled('loadout') or selected.loadout_fixture or selected.loadout_mod then require('loadout_probe').run(api,{
+    fixture=selected.loadout_fixture==true,only=selected.loadout_mod and 'active_crabcult_item_cursed_guard_and_restore' or nil,
+    onFight=function(value)fighting=value end})end
+if selected.panel then require('panel_probe').run(api,{onFight=function(value)fighting=value end})end
+if selected.cursed then require('cursed_probe').run(api,{onFight=function(value)fighting=value end})end
 local function finalBattle(name,scene,requireSummons,nativeDeployment)
     run(name,function()
         local original=M.copy(scene);local r=open(scene,nativeDeployment);local before=M.copy(scene);local report=Report.new(api)

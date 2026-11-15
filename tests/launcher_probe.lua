@@ -4,6 +4,7 @@ if not request or not request.launch or not request.launch.nonce then return end
 local nonce=request.launch.nonce
 if not nonce:match('^[a-f0-9]+$') or #nonce~=32 then return end
 local status={nonce=nonce,sandbox='0',terrain_query='absent',plain='0',forest='0',editor='0',integrity='0',lifecycle='0',multiple_unique='0',inline_input='0',fitted_icons='0',empty_editor='0',final_snapshot_api='0'}
+status.configuration='0'
 if type(coe5.setTestFieldSpells)=='function' and type(coe5.removeTestFieldUnit)=='function' and type(coe5.battleScreenToCell)=='function' then status.editor='1' end
 if type(coe5.testFieldEditorCapabilities)=='function' then
     local ok,caps=pcall(coe5.testFieldEditorCapabilities)
@@ -12,6 +13,7 @@ if type(coe5.testFieldEditorCapabilities)=='function' then
         if caps.lifecycle==1 then status.lifecycle='1' end
         if caps.multipleUnique==1 then status.multiple_unique='1' end
         if caps.emptyEditor==1 then status.empty_editor='1' end
+        if caps.configuration==1 and type(coe5.testFieldLoadoutState)=='function' and type(coe5.setTestFieldConfiguration)=='function' then status.configuration='1' end
     end
 end
 if type(coe5.setTestFieldTextFocus)=='function' and type(coe5.takeTestFieldTextEvents)=='function' then status.inline_input='1' end

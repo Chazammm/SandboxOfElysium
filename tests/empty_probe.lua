@@ -159,6 +159,7 @@ function Probe.run(api,options)
         scene,a=add(r,scene,resolve('Spearman'),1);scene,b=add(r,scene,resolve('Goblin'),2);priest=find(scene,modelId)
         local native=r.live[modelId];assert(#priest.baseline.known>0 and #priest.spells>0,'loaded Anointed Priestess has no native spell fixture')
         api.giveItem(native,'A Chest Full of Fire');priest.items=r:inventory(native);assert(#priest.items>0,'custom item assignment unavailable')
+        if priest.equipment then local L=require('sandbox.loadout');L.capture(r,priest,assert(L.read(r,native)))end
         local removed=priest.spells[1];assert(r:memorize(priest,removed,false),'explicit spell customization refused')
         local before=checked(r,scene);local signature=before.signatures[native];local template=M.copy(priest)
         result.configured_caster={monster=priestId,model_id=modelId,native_id=native,known=table.concat(priest.baseline.known,'|'),memorized=table.concat(priest.spells,'|'),items=table.concat(priest.items,'|'),removed_spell=removed}

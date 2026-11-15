@@ -1,0 +1,25 @@
+icon "banner.tga"
+description "Private isolated equipment/magic QA fixture. Never enabled by a normal Sandbox BAT launch."
+
+newweapon "Sandbox QA Bolt"
+range 5
+init 1
+dmgtype 2
+dmg 1
+
+newspellpath "Sandbox QA"
+
+newspell "Sandbox Echo"
+path "Sandbox QA"
+level 1
+weapon 1 "Sandbox QA Bolt"
+
+newspell "Sandbox Echo"
+path "Sandbox QA"
+level 2
+weapon 1 "Sandbox QA Bolt"
+
+selectmonster "Druid's Apprentice"
+itemslots "weapon" 2
+itemslots "misc item" 18
+spellweapon "Sandbox QA" 1

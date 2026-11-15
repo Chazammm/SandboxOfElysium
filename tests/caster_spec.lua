@@ -172,4 +172,19 @@ test('bad pending candidate remains repairable after the healthy previous field 
     local problems=f.r:spellRepairCandidates(f.r.spellRepairScenario)
     assert(#problems==1 and #problems[1].spells==10 and equal(f.r.originalSpellRecovery,pending))
 end)
+test('failed legacy upgrade preserves exact original recovery provenance',function()
+    local f=fixture();local pending=invalidOriginal(f);local requested=M.copy(pending);local healthy=M.copy(f.s)
+    f.r._build=function(_,candidate)
+        f.calls.build=f.calls.build+1
+        if f.calls.build==1 then
+            candidate.units[1].equipment={{position=0,id=17,name='Saved sigil'}}
+            candidate.units[1].schools={{path=19,name='Solar',base=3}}
+            diagnose(f,candidate);return false,'memorize_limit'
+        end
+        f.load(candidate);return true
+    end
+    assert(not f.r:build(pending) and not f.r.blocked and equal(f.r.current,healthy))
+    assert(equal(f.r.originalSpellRecovery,requested) and equal(f.r.spellRepairScenario,requested))
+    assert(f.r.originalSpellRecovery.units[1].equipment==nil and #f.r.originalSpellRecovery.units[1].spells==10)
+end)
 print(count..' offline caster contracts passed; native behavior requires the separate real-game probe')

@@ -5,6 +5,9 @@ local Report=require('sandbox.report')
 local Diagnostics=require('sandbox.diagnostics')
 local Preview=require('sandbox.preview')
 local FinalView=require('sandbox.final_view')
+local Loadout=require('sandbox.loadout')
+local LoadoutUI=require('sandbox.loadout_ui')
+local ConfigWindow=require('sandbox.config_window')
 local U={};U.__index=U
 local kinds={'Single','Horizontal Row','Vertical Row','Square'}
 local categories={'All','human','animal','undead','demonic','flying','ranged'}
@@ -167,7 +170,7 @@ function U:setup()
             self:prepare(true)
         elseif id==4 then self:load()
         elseif id==5 then self:terrainBrowser()
-        elseif id==6 then self:notice('Neutral Elysium, no fort; verified terrain capabilities; automatic width, no manual field sizes. No attack-sprite or mod-origin API. No school-level setter or unit slot preflight. See API-GAPS.md.')
+        elseif id==6 then self:notice('Neutral land battlefields, no fort; automatic field size. '..(Loadout.available(self.api) and 'Equipment and existing base schools up to level 3 are editable. New schools and eye/heart implants are unavailable. ' or 'Equipment and base-school editing need the newer experimental Extender. ')..'Attack artwork, content origin and complete battle telemetry remain unavailable.')
         elseif id==7 then self:smallCheck()
         elseif id==9 and self.snapshot then self.scenario=M.copy(self.snapshot);self.message='Pre-battle setup selected; native restoration checked on Prepare'
         elseif id==10 then self:save()
@@ -206,11 +209,11 @@ function U:refresh()
     self.filtered=Catalog.filter(self.catalog,self.search,categories[self.category])
     self.page=math.max(1,math.min(self.page,math.max(1,math.ceil(#self.filtered/5))))
 end
-function U:setSearchFocus(on)
+function U:setSearchFocus(on,target)
     if not on then
         if type(self.api.setTestFieldTextFocus)=='function' then self.api.setTestFieldTextFocus(false) end
         if self.searchFocused then self.dragBlocked=true end
-        self.searchFocused=false;return true
+        self.searchFocused=false;self.textTarget=nil;return true
     end
     if self.phase~='prepare' or self.runtime.blocked or self.noticeText then return false end
     if type(self.api.setTestFieldTextFocus)~='function' or type(self.api.takeTestFieldTextEvents)~='function' then
@@ -218,28 +221,31 @@ function U:setSearchFocus(on)
     end
     local ok,why=self.api.setTestFieldTextFocus(true)
     self.searchFocused=ok and true or false
+    self.textTarget=self.searchFocused and (target or (self.catalogTab=='items' and 'items' or 'units')) or nil
     if not ok then self.message='Inline search unavailable: '..tostring(why or 'unknown reason')
-    else self.context=nil;self.moving=nil;self.copyTemplate=nil;self.message='Type to filter; Backspace deletes, Clear resets, Enter/Escape leaves search.' end
+    else self.context=nil;self.moving=nil;self.copyTemplate=nil;self.message=self.textTarget=='label' and 'Sandbox label: type to update; native name stays unchanged.' or 'Type to filter; Backspace deletes, Clear resets, Enter/Escape leaves search.' end
     return self.searchFocused
 end
 function U:searchEvents()
     if not self.searchFocused or type(self.api.takeTestFieldTextEvents)~='function' then return false end
     local packet=self.api.takeTestFieldTextEvents()
     if type(packet)~='table' then self:setSearchFocus(false);self.message='Inline input state unavailable; search focus released.';return true end
-    local changed=false
+    local changed=false;local focusTarget=self.textTarget
     for _,event in ipairs(packet.events or {}) do
-        if event.type=='text' and type(event.text)=='string' then
+        if (self.textTarget=='label' or self.textTarget=='spells') and (event.type=='text' or event.type=='backspace' or event.type=='clear') then
+            ConfigWindow.text(self,event)
+        elseif event.type=='text' and type(event.text)=='string' then
             local text=event.text:gsub('[%z\1-\31\127]','')
             local valid=true
             if utf8 then local ok,length=pcall(utf8.len,text);valid=ok and length~=nil end
-            if valid then self.search=Catalog.textLimit(self.search..text,96);changed=true end
-        elseif event.type=='backspace' then self.search=Catalog.backspace(self.search);changed=true
-        elseif event.type=='clear' then self.search='';changed=true
+            if valid then if self.textTarget=='items' then self.itemSearch=Catalog.textLimit((self.itemSearch or '')..text,96)else self.search=Catalog.textLimit(self.search..text,96)end;changed=true end
+        elseif event.type=='backspace' then if self.textTarget=='items'then self.itemSearch=Catalog.backspace(self.itemSearch or '')else self.search=Catalog.backspace(self.search)end;changed=true
+        elseif event.type=='clear' then if self.textTarget=='items'then self.itemSearch=''else self.search=''end;changed=true
         elseif event.type=='submit' or event.type=='cancel' or event.type=='blur' then self:setSearchFocus(false) end
     end
     if changed then
-        self.page=1;self:refresh()
-        self.diag:record('search',{query_length=#self.search,matches=#self.filtered,source='inline_utf8'})
+        if focusTarget=='items'then self.itemPage=1;ConfigWindow.items(self)else self.page=1;self:refresh()end
+        self.diag:record('search',{query_length=focusTarget=='items' and #(self.itemSearch or '')or #self.search,matches=focusTarget=='items' and #self.filteredItems or #self.filtered,source='inline_utf8',catalog=focusTarget or 'units'})
     end
     if packet.focused==false then self:setSearchFocus(false) end
     if packet.overflow then self:setSearchFocus(false);self.message='Input queue overflow: search focus released. Click search to continue.' end
@@ -429,6 +435,7 @@ end
 function U:ownsPointer(x,y)
     local W,H=self.api.get('screenW'),self.api.get('screenH')
     if self.phase=='after' then return y>=H-38 or y<106 end
+    if ConfigWindow.owns(self,x,y)then return true end
     return y>=H-38 or y<38 or x>=W-300 and (y<342 or y>=H-240)
 end
 function U:draw()
@@ -487,7 +494,7 @@ function U:draw()
         end
     end
     local gx,gy=self:pointerCell()
-    if self.phase=='prepare' and gx and not self.context then
+    if self.phase=='prepare' and gx and (self.selected~=nil or self.moving) and not self.context and not self.selectedItem and self.catalogTab~='items' then
         local plan=self:placementPreview(gx,gy);self.previewInfo=plan
         if plan.width and plan.height then self.lastPreviewInfo=plan end
         for _,c in ipairs(plan.cells) do
@@ -514,7 +521,7 @@ function U:draw()
     self:button('diagnostics','Export Diagnostics',380,H-32,148,26)
     self:button('back',self.moving and 'Cancel move' or 'Back',W-94,H-32,84,26)
     ui.drawRect(0,0,W,38,0.035,0.045,0.055,0.98)
-    ui.drawText(10,22,10,self.phase=='after' and 'Final snapshot is read only. Right-click a captured survivor for native Inspect where available.' or self.moving and 'MOVE: right-click destination; Cancel move keeps the original.' or 'Right-click places. Existing unit: Inspect / Edit / Move / Copy / Delete.',1,1,0.9,1)
+    ui.drawText(10,22,10,self.phase=='after' and 'Final snapshot is read only. Right-click a captured survivor for native Inspect where available.' or self.selectedItem and ('ITEM: '..Catalog.textLimit(self.selectedItem.name,42)..' - right-click a unit. Select again or Cancel item to clear.') or self.moving and 'MOVE: right-click destination; Cancel move keeps the original.' or (self.selected==nil or self.catalogTab=='items') and 'Right-click a unit: Inspect / Edit / Move / Copy / Delete.' or 'Right-click places. Existing unit: Inspect / Edit / Move / Copy / Delete.',1,1,0.9,1)
     ui.drawText(10,5,10,self.message:sub(1,112),0.95,0.76,0.45,1)
     if self.phase=='after' then
         ui.drawRect(0,38,W,68,0.035,0.045,0.055,0.95)
@@ -536,18 +543,26 @@ function U:draw()
     local selected=self.catalog.byId[self.selected]
     ui.drawRect(p,38,300,304,0.035,0.045,0.055,0.94)
     ui.drawRect(p,H-240,300,202,0.035,0.045,0.055,0.94)
-    ui.drawText(p+8,H-61,12,selected and Catalog.textLimit(selected.name,37,'...') or 'Select a unit below',1,0.87,0.6,1)
-    self:button('formation',kinds[self.formation]..' ('..self.n..')',p+8,H-96,230,25)
-    self:button('number','+',p+246,H-96,46,25)
+    ui.drawText(p+8,H-61,12,self.selectedItem and ('Item: '..Catalog.textLimit(self.selectedItem.name,30,'...')) or self.catalogTab=='items' and 'Choose an item below' or selected and Catalog.textLimit(selected.name,37,'...') or 'Select a unit below',1,0.87,0.6,1)
+    if self.selectedItem then
+        self:button('itemcancel','Cancel item selection',p+8,H-96,284,25,{0.30,0.20,0.13})
+    elseif self.catalogTab=='items'then ui.drawText(p+8,H-87,11,'Select an item, then right-click a placed unit.',0.9,0.9,0.85,1)
+    else
+        self:button('formation',kinds[self.formation]..' ('..self.n..')',p+8,H-96,230,25)
+        self:button('number','+',p+246,H-96,46,25)
+    end
     self:button('fight','Start battle',p+8,H-131,284,29,{0.32,0.21,0.08})
     self:button('save','Save',p+8,H-165,138,25);self:button('load','Load',p+154,H-165,138,25)
     self:button('clear','Clear battlefield',p+8,H-198,178,25)
     if self.snapshot then self:button('reset','Reset',p+194,H-198,98,25) end
     self:button('unique','Multiple unique: '..(self.scenario.allowMultipleUnique and 'On' or 'Off'),p+8,H-232,284,25)
-    ui.drawText(p+8,322,11,'Units - select, then right-click map',0.9,0.9,0.85,1)
-    local searchLabel=self.search=='' and (self.searchFocused and 'Type to search...' or 'Search units...') or Catalog.textLimit(self.search,28,'...')
+    self:button('catalogunits','Units',p+8,316,138,24,self.catalogTab~='items' and {0.16,0.32,0.46} or nil)
+    self:button('catalogitems','Items',p+154,316,138,24,self.catalogTab=='items' and {0.16,0.32,0.46} or nil)
+    if self.catalogTab=='items'then ConfigWindow.drawCatalog(self,p)else
+    local unitSearchFocused=self.searchFocused and (self.textTarget==nil or self.textTarget=='units')
+    local searchLabel=self.search=='' and (unitSearchFocused and 'Type to search...' or 'Search units...') or Catalog.textLimit(self.search,28,'...')
     self.searchRect={x=p+8,y=285,w=234,h=27}
-    self:button('search',searchLabel..(self.searchFocused and ' |' or ''),p+8,285,234,27,self.searchFocused and {0.16,0.31,0.43} or nil)
+    self:button('search',searchLabel..(unitSearchFocused and ' |' or ''),p+8,285,234,27,unitSearchFocused and {0.16,0.31,0.43} or nil)
     self:button('searchclear','Clear',p+246,285,46,27)
     local filterText='Filter: '..categories[self.category]..' | '..#self.filtered..' results'
     if categories[self.category]=='ranged' and (self.catalog.rangedUnknown or 0)>0 then filterText='Ranged unavailable/partial: update Extender' end
@@ -566,11 +581,13 @@ function U:draw()
     if #self.filtered==0 then ui.drawText(p+18,208,12,'No matching units. Clear search or filter.',0.95,0.85,0.65,1) end
     self:button('prev','<',p+8,42,40,25);self:button('next','>',p+252,42,40,25)
     ui.drawText(p+65,50,11,self.page..' / '..math.max(1,math.ceil(#self.filtered/5))..(type(ui.drawMonsterIconFit)=='function' and '' or ' | icon API missing'),0.8,0.8,0.8,1)
+    end
     if self.context then
         local x,y=math.max(5,math.min(p-140,self.context.px)),math.max(194,math.min(H-45,self.context.py))
         ui.drawRect(x-5,y-152,138,152,0.02,0.025,0.03,1)
         for i,label in ipairs({'Inspect','Edit','Move','Copy','Delete'}) do self:button('context:'..label,label,x,y-i*28,128,25) end
     end
+    ConfigWindow.draw(self)
 end
 function U:pointerCell()
     local px,py=self.api.get('uiPointerX'),self.api.get('uiPointerY')
@@ -590,8 +607,9 @@ function U:input(mouse)
         if mouse&3==0 then self.releaseBarrier=nil;self.dragBlocked=false end
         return true
     end
+    if not self.noticeText and not self.runtime.blocked and ConfigWindow.input(self,mouse,freshLeft,x,y)then return true end
     if self.searchFocused and (freshLeft or freshRight) then
-        local r=self.searchRect
+        local r=ConfigWindow.focusRect(self)
         local inSearch=r and x>=r.x and x<r.x+r.w and y>=r.y and y<r.y+r.h
         local clear=false
         for _,b in ipairs(self.buttons) do if b.key=='searchclear' and x>=b.x and x<b.x+b.w and y>=b.y and y<b.y+b.h then clear=true end end
@@ -622,10 +640,14 @@ function U:input(mouse)
     end
     if self.phase=='prepare' and not self.runtime.blocked and mouse&2~=0 and gx then
         consumed=true;local u=self:unitAt(gx,gy)
-        if freshRight and u and not self.moving then self.context={unit=u,px=x,py=y};self.dragBlocked=true;self.diag:record('context',{name=u.name,id=u.id})
+        if freshRight and u and not self.moving then
+            if self.selectedItem then self.pending={equip=true,model_id=u.id}
+            elseif self.editWindow then self.pending={openConfig=u.id}
+            else self.context={unit=u,px=x,py=y};self.diag:record('context',{name=u.name,id=u.id})end
+            self.dragBlocked=true
         elseif self.moving then
             if freshRight then self.pending={move=true,x=gx,y=gy} end
-        elseif not self.context and not self.dragBlocked then
+        elseif self.selected~=nil and not self.context and not self.dragBlocked and self.catalogTab~='items' and not self.selectedItem then
             if freshRight then
                 local footprint=self:placementFootprint()
                 local stepX,stepY
@@ -724,33 +746,25 @@ function U:load()
             self:notice(self.message);return
         end
     end
+    ConfigWindow.close(self);self.selectedItem=nil
     self.scenario=candidate;self.context=nil;self.moving=nil;self.copyTemplate=nil;self.message='Scenario content validated; native positions checked on Prepare'
     self.diag:record('load',{units=#candidate.units,terrain=candidate.terrain})
 end
 function U:edit(u)
-    local ok,why=self.runtime:ready(self.scenario);if not ok then self:notice(why);return end
-    self.inNativeMenu=true
-    while true do
-        local unit=self.runtime.live[u.id]
-        local ui=self.api.ui;ui.screenBegin('Edit '..u.name..' #'..u.id);ui.screenWidth(610);ui.sectionBegin('Native unit')
-        ui.monsterRow(0,u.monster,u.name,'Team '..(u.team==1 and 'A' or 'B')..' | cell '..u.x..', '..u.y..' | HP '..tostring(self.api.get('unitHp',unit)))
-        ui.text(1,'Spells: select from this unit\'s existing known spells')
-        ui.text(2,'Items: inspect inventory and search item catalog')
-        ui.text(0,'School level upgrades: unavailable (no supported base-level setter).')
-        ui.text(999,'Done');ui.sectionEnd();ui.bindEscape(999);local id=ui.wait()
-        if id==999 then self.inNativeMenu=false;return elseif id==1 then self:spellEditor(u) elseif id==2 then self:itemBrowser(u) end
-    end
+    return ConfigWindow.open(self,u)
 end
-function U:spellEditor(u)
+function U:spellEditor(u,path)
     local page=1
     while true do
-        local known=u.baseline.known;local rows={{0,'Choose existing known spells. Game memorization limits apply.'}}
+        local known={};for _,key in ipairs(u.baseline.known) do local info=self.api.spellInfo(self.catalog.spellKeys[key]);if path==nil or (info and info.path==path) then known[#known+1]=key end end
+        page=math.max(1,math.min(page,math.max(1,math.ceil(#known/8))))
+        local rows={{0,'Choose existing known spells by ID. Native per-school limits apply.'}}
         for i=(page-1)*8+1,math.min(page*8,#known) do rows[#rows+1]={100+i,(contains(u.spells,known[i]) and '[x] ' or '[ ] ')..known[i]} end
         rows[#rows+1]={1,'Previous'};rows[#rows+1]={2,'Next'};rows[#rows+1]={999,'Done'}
         local id=self:menu('Battle spells',rows)
         if id==999 then return elseif id==1 then page=math.max(1,page-1) elseif id==2 then page=math.min(math.max(1,math.ceil(#known/8)),page+1)
         elseif known[id-100] then
-            local name=known[id-100];if not self.runtime:memorize(u,name,not contains(u.spells,name)) then self:notice('The game rejected this memorization change.') end
+            local name=known[id-100];local ok,why=self.runtime:memorize(u,name,not contains(u.spells,name));if not ok then self:notice(why or 'The game rejected this memorization change. Previous selection kept.') end
         end
     end
 end
@@ -758,7 +772,7 @@ function U:itemBrowser(u)
     local search,slot,page,slotIndex='',nil,1,0
     while true do
         local rows={{0,'Inventory: '..(#u.items==0 and '(none)' or table.concat(u.items,', '))},
-            {0,'Assignment disabled: no documented unit-slot compatibility preflight.'},
+            {0,'Equipment editing needs the newer experimental Extender; current inventory is read only.'},
             {1,'Search: '..search},{2,'Slot type: '..(slot==nil and 'All' or tostring(slot))}}
         local filtered={};for _,item in ipairs(self.catalog.items) do if item.name:lower():find(search:lower(),1,true) and (slot==nil or slot==item.slot) then filtered[#filtered+1]=item end end
         page=math.max(1,math.min(page,math.max(1,math.ceil(#filtered/5))))
@@ -775,6 +789,7 @@ function U:fight()
     if M.count(self.scenario,1)==0 or M.count(self.scenario,2)==0 then self:notice('Place at least one unit for each team before fighting.');return false end
     local ready,why=self.runtime:ready(self.scenario);if not ready then self:notice(why);return false end
     self.diag:record('battle_start',{units=#self.scenario.units,terrain=self.scenario.terrain})
+    ConfigWindow.close(self);self.selectedItem=nil
     self.snapshot=M.copy(self.scenario);self.phase='fight';self.context=nil;self.moving=nil
     self.report:start(self.scenario,self.runtime);self.api.fightTestField();self.report:finish(self.scenario,self.runtime)
     self.phase='after';self.runtime.phase='after';self.native=true;self.finalContext=nil
@@ -816,6 +831,7 @@ function U:reset(rematch)
     if not self.snapshot then self:notice('No pre-battle setup is available. Current scenario was kept.');return false end
     local candidate=M.copy(self.snapshot);local ok,why=self.runtime:build(candidate)
     if ok then
+        ConfigWindow.close(self);self.selectedItem=nil
         self.scenario=candidate;self.phase='prepare';self.native=type(self.api.battleView)=='function';self.context=nil;self.moving=nil;self.copyTemplate=nil;self.finalPlan=nil;self.finalContext=nil
         self.message='Original pre-battle setup restored; previous report kept'
         self.diag:record(rematch and 'rematch' or 'reset',{units=#candidate.units});return true
@@ -842,8 +858,11 @@ function U:dispatch(action)
         self.message='Editing locked; export diagnostics and reopen the preserved setup.';self.pending=nil;return true
     end
     if type(action)=='table' then
-        if action.move then local ok,why=self.runtime:move(self.moving,action.x,action.y);self.message=ok and 'Moved; configuration preserved' or why;if ok then self.moving=nil;self.dragBlocked=true end
+        if action.equip then local u=ConfigWindow.find(self,action.model_id);if u then ConfigWindow.give(self,u)end
+        elseif action.openConfig then local u=ConfigWindow.find(self,action.openConfig);if u then ConfigWindow.open(self,u)end
+        elseif action.move then local ok,why=self.runtime:move(self.moving,action.x,action.y);self.message=ok and 'Moved; configuration preserved' or why;if ok then self.moving=nil;self.dragBlocked=true end
         elseif action.place then
+            if self.selected==nil then self.message='Select a unit before placing.';return true end
             local skipped,placed,lastReason=0,0,nil
             local footprint=self:placementFootprint();local anchors,why=self:placementAnchors(action.x,action.y,footprint)
             if not anchors then self.message=why;return true end
@@ -859,8 +878,26 @@ function U:dispatch(action)
                 footprint_source=footprint and footprint.source or 'unavailable',spacing='footprint-positive-xy'})
         end;return true
     end
+    if ConfigWindow.dispatch(self,action)then return true end
     local prefix,value=action:match('^(%w+):(.+)$')
-    if prefix=='unit' then local m=self.filtered[tonumber(value)];if m then self.selected=m.id;self.copyTemplate=nil;self.message='Selected '..m.name;self.diag:record('select',{monster=m.id,name=m.name}) end
+    if prefix=='item'then
+        local item=self.catalog.byItemId and self.catalog.byItemId[tonumber(value)]
+        if item then
+            local deselect=self.selectedItem and self.selectedItem.id==item.id
+            self.selectedItem=not deselect and item or nil;self.equipDialog=nil;self.moving=nil;self.copyTemplate=nil;self.context=nil
+            self.releaseBarrier=true;self.dragBlocked=true
+            self.message=deselect and 'Item selection cleared. Right-click a unit for its context menu.' or 'Item selected: '..item.name..'. Right-click a unit to equip; click Select again to clear.'
+        end
+    elseif prefix=='iteminfo'then ConfigWindow.inspectItem(self,tonumber(value))
+    elseif prefix=='unit' then
+        local m=self.filtered[tonumber(value)]
+        if m then
+            local deselect=self.selected==m.id
+            self.selected=not deselect and m.id or nil;self.selectedItem=nil;self.equipDialog=nil;self.copyTemplate=nil;self.moving=nil;self.context=nil
+            self.releaseBarrier=true;self.dragBlocked=true
+            self.message=deselect and 'Unit selection cleared. Right-click a unit for its context menu.' or 'Selected '..m.name..'; click Select again to clear.'
+            self.diag:record(deselect and 'deselect' or 'select',{monster=m.id,name=m.name})
+        end
     elseif prefix=='context' then
         local u=self.context.unit;self.context=nil
         if value=='Inspect' then self:inspect(u) elseif value=='Edit' then self:edit(u) elseif value=='Move' then self.moving=u;self.message='Right-click target; Back cancels move'
@@ -885,10 +922,20 @@ function U:dispatch(action)
     elseif action=='formation' then self.formation=self.formation%4+1;self.n=self.formation==4 and 2 or 1
     elseif action=='number' then self.n=self.formation==4 and (self.n==4 and 2 or self.n+1) or (self.n%15+1)
     elseif action=='search' then self:setSearchFocus(true)
-    elseif action=='searchclear' then self.search='';self.page=1;self:refresh();self.diag:record('search',{query_length=0,matches=#self.filtered,source='clear'})
+    elseif action=='searchclear' then
+        if self.catalogTab=='items'then self.itemSearch='';self.itemPage=1;ConfigWindow.items(self)else self.search='';self.page=1;self:refresh()end
+        self.diag:record('search',{query_length=0,source='clear',catalog=self.catalogTab or 'units'})
+    elseif action=='catalogunits'then self.catalogTab='units';self.selectedItem=nil;self.equipDialog=nil;self.context=nil;self.releaseBarrier=true
+    elseif action=='catalogitems'then self.catalogTab='items';self.context=nil;self.moving=nil;self.copyTemplate=nil;ConfigWindow.items(self);self.releaseBarrier=true
+    elseif action=='itemcancel'then self.selectedItem=nil;self.equipDialog=nil;self.context=nil;self.releaseBarrier=true;self.message='Item selection cancelled. Right-click a unit for its context menu.'
+    elseif action=='itemorigin'then local nextSource={all='modded',modded='unknown',unknown='all'};self.itemOrigin=nextSource[self.itemOrigin or 'all'];self.itemPage=1;ConfigWindow.items(self)
     elseif action=='unique' then self:toggleMultipleUnique()
-    elseif action=='filter' then self.category=self.category%#categories+1;self.page=1;self:refresh()
-    elseif action=='prev' then self.page=self.page-1;self:refresh() elseif action=='next' then self.page=self.page+1;self:refresh()
+    elseif action=='filter' then
+        if self.catalogTab=='items'then self.itemSlotIndex=((self.itemSlotIndex or 0)+1)%(#self.catalog.itemSlots+1);self.itemSlot=self.catalog.itemSlots[self.itemSlotIndex];self.itemPage=1;ConfigWindow.items(self)
+        else self.category=self.category%#categories+1;self.page=1;self:refresh()end
+    elseif action=='prev' or action=='next' then
+        if self.catalogTab=='items'then self.itemPage=(self.itemPage or 1)+(action=='next'and 1 or -1);ConfigWindow.items(self)
+        else self.page=self.page+(action=='next'and 1 or -1);self:refresh()end
     elseif action=='fight' then if self:fight() then return self:postBattle() end
     elseif action=='results' then return self:postBattle()
     elseif action=='finalinspect' then self:inspectFinal()

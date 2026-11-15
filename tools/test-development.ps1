@@ -155,6 +155,10 @@ try {
     if ($InspectorCases) { if(-not $InspectorProbe){throw 'InspectorCases benoetigt InspectorProbe.'}; $prepareArgs+=@('--inspector-cases',$InspectorCases) }
     if ($BattlefieldProbe) { $prepareArgs+=@('--battlefield-probe','--probe-mode',$ProbeMode) }
     if ($BattlefieldCases) { if(-not $BattlefieldProbe){throw 'BattlefieldCases benoetigt BattlefieldProbe.'}; $prepareArgs+=@('--battlefield-cases',$BattlefieldCases) }
+    if ($env:SOE_TEST_PROBE_AUTO -eq '1') {
+        if (-not $BattlefieldProbe -or -not $BattlefieldCases) { throw 'Private Probe-Automation benoetigt eine ausdrueckliche BattlefieldProbe-Fallauswahl.' }
+        $prepareArgs+='--probe-auto'
+    }
     if ($TerrainCandidates) { $prepareArgs+='--terrain-candidates' }
     if ($CrabCult) { $prepareArgs+='--crabcult' }
     & $python (Join-Path $PSScriptRoot 'prepare-terrain-lab.py') @prepareArgs
@@ -242,6 +246,7 @@ try {
     else { Write-Host 'Integritaets-API fehlt oder ist unbekannt. Der aktuelle Editor kann die Vorbereitung ablehnen.' -ForegroundColor Yellow }
     Write-Host ('Experimentelle Funktionen (Laufzeitmeldung): Lebenszyklus={0}, Mehrfach-Unique={1}, Inline-Eingabe={2}, eingepasste Icons={3}. Dies ersetzt keinen Funktionstest.' -f $status['lifecycle'],$status['multiple_unique'],$status['inline_input'],$status['fitted_icons'])
     Write-Host ('Editor-Erweiterungen (Funktionen vorhanden, kein Abnahmetest): leere Teams={0}, finale Snapshot-API={1}.' -f $status['empty_editor'],$status['final_snapshot_api'])
+    Write-Host ('Ausrustung/Basis-Magiestufen: API verfuegbar={0}. Funktioniert nur mit dem separaten lokalen Extender; kein neuer Funktionstest.' -f $status['configuration'])
     @{pid=$gameProcess.Id;nonce=$nonce;profile=$profile;gameHash=$gameHash;pluginHash=(Hash $plugin);extenderVersion=$version;status=$status} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $lab 'last-launch.json') -Encoding UTF8
     $launchLock.Dispose();$launchLock=$null
     if (-not $NoWait) {

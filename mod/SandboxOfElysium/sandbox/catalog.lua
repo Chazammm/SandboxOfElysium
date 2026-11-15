@@ -29,6 +29,20 @@ function C.backspace(text)
     if utf8 then local ok,at=pcall(utf8.offset,text,-1);if ok and at then return text:sub(1,at-1) end end
     return text:sub(1,-2)
 end
+function C.origin(api,kind,id)
+    if type(api.loadedContentOrigin)=='function'then
+        local ok,value=pcall(api.loadedContentOrigin,kind,id)
+        if ok and type(value)=='table' and value.id==id and type(value.kind)=='string' and type(value.modded)=='boolean'then return value end
+    end
+    return {id=id,kind='unknown',modded=false,observed=false,scope='loaded-content provenance unavailable'}
+end
+function C.schoolOrigin(c,api,path)
+    c.schoolOrigins=c.schoolOrigins or {}
+    if not c.schoolOrigins[path]then c.schoolOrigins[path]=C.origin(api,'spellschool',path)end
+    local origin=M.copy(c.schoolOrigins[path]);local spells=c.modSpellSchools and c.modSpellSchools[path]
+    if spells then origin.modded=true;origin.hasModSpells=true;origin.spellMods=spells end
+    return origin
+end
 function C.read(api)
     local c={monsters={},byId={},items={},itemNames={},itemSlots={},spells={},spellNames={},spellKeys={},mods={},terrains={},terrainById={},testFieldTerrains={},rangedUnknown=0}
     if type(api.testFieldTerrains)=='function' then
@@ -59,15 +73,29 @@ function C.read(api)
         local name=api.get('itemName',i)
         if name and name~='' then
             local slot=api.get('itemSlotType',i)
-            c.items[#c.items+1]={id=i,name=name,slot=slot}
+            local item={id=i,name=name,slot=slot,origin=C.origin(api,'item',i)};c.items[#c.items+1]=item
+            c.byItemId=c.byItemId or {};c.byItemId[i]=item
             if c.itemNames[name]~=nil then c.itemNames[name]=false else c.itemNames[name]=i end
             if slot~=nil then slots[slot]=true end
         end
     end
     table.sort(c.items,function(a,b)return a.name:lower()<b.name:lower() end)
     for slot in pairs(slots) do c.itemSlots[#c.itemSlots+1]=slot end;table.sort(c.itemSlots)
-    -- spellInfo returns nil for holes. spellLastIndex is not a documented variable.
-    for i=0,2999 do local info=api.spellInfo(i); if info then
+    -- Extended tables may exceed the old hard-coded 3000-ID scan. Read the
+    -- actual loaded capacity when the local API exposes it, including holes.
+    local spellLast=2999
+    if type(api.testFieldEditorCapabilities)=='function' then
+        local ok,caps=pcall(api.testFieldEditorCapabilities)
+        local records=ok and type(caps)=='table' and caps.spellRecords
+        if type(records)=='number' and records%1==0 and records>0 and records<=4096 then spellLast=records-1 end
+    end
+    for i=0,spellLast do local info=api.spellInfo(i); if info then
+        info.origin=C.origin(api,'spell',i)
+        if info.origin.modded then
+            c.modSpellSchools=c.modSpellSchools or {};c.modSpellSchools[info.path]=c.modSpellSchools[info.path]or {}
+            local source=info.origin.lastModifiedBy or info.origin.definedBy or 'observed mod spell'
+            c.modSpellSchools[info.path][source]=true
+        end
         info.id=i; c.spells[#c.spells+1]=info
         c.spellKeys[i..':'..info.name]=i
         if c.spellNames[info.name]~=nil then c.spellNames[info.name]=false else c.spellNames[info.name]=i end

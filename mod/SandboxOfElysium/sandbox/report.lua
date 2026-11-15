@@ -73,7 +73,7 @@ function Report:finish(s,runtime)
         if finalAnchor then out.summary.captured_original_position_count=out.summary.captured_original_position_count+1 end
         if x and y then out.summary.final_position_count=out.summary.final_position_count+1 end
         if aftermath then out.summary.aftermath_position_count=out.summary.aftermath_position_count+1 end
-        out['unit'..u.id]={name=u.name,monster=u.monster,team=u.team,native=unit,hp=hp or 'unavailable',
+        out['unit'..u.id]={name=u.name,sandbox_label=u.label or '',label_scope='sandbox_display_label; native card/log unchanged',monster=u.monster,team=u.team,native=unit,hp=hp or 'unavailable',
             alive=alive and 1 or 0,final_owner=self.api.get('unitOwner',unit) or 'unavailable',
             x=x or 'unavailable',y=y or 'unavailable',
             aftermath_x=aftermath and aftermath.x or 'unavailable',aftermath_y=aftermath and aftermath.y or 'unavailable',

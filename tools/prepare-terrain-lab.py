@@ -18,7 +18,10 @@ p.add_argument('--battlefield-cases',default='',help='Comma-separated private ca
 p.add_argument('--terrain-candidates',action='store_true',help='Mark a private terrain candidate build in probe evidence')
 p.add_argument('--crabcult',action='store_true',help='Use the already installed private CrabCult copy, never distributed')
 p.add_argument('--probe-mode',choices=('baseline','regression'),default='regression')
+p.add_argument('--probe-auto',action='store_true',help='Private explicitly selected native probe; no default BAT automation')
 a=p.parse_args()
+if a.probe_auto and (not a.battlefield_probe or not a.battlefield_cases):
+    p.error('--probe-auto requires an explicit battlefield probe/case selection')
 assert a.label.replace('-','').replace('.','').isalnum()
 base=root/'private/lab'
 identity=json.loads((base/'identity.json').read_text())
@@ -143,19 +146,25 @@ if a.inspector_probe:
     names+=('ZZSandboxInspectorProbe',)
 
 if a.battlefield_probe:
+    if 'loadout_fixture' in a.battlefield_cases.split(','):
+        fixture=profile/'mods/ZZZSandboxLoadoutFixture20261115'
+        fixture.mkdir(parents=True,exist_ok=True)
+        shutil.copy2(root/'tests/loadout-fixture.c5m',fixture/'ZZZSandboxLoadoutFixture20261115.c5m')
+        shutil.copy2(root/'mod/SandboxOfElysium/banner.tga',fixture/'banner.tga')
+        names+=('ZZZSandboxLoadoutFixture20261115',)
     backup=Path((root/'private/battlefield-baseline-path.txt').read_text().strip())
     for modname,script in (('ZZSandboxBattlefieldProbe','battlefield_probe.lua'),('ZZSandboxFinalProbe','final_probe.lua')):
         probe=profile/'mods'/modname;probe.mkdir(parents=True,exist_ok=True)
         shutil.copy2(root/'tests'/script,probe/(modname+'.lua'))
         source=backup/'sandbox/mod/SandboxOfElysium/sandbox' if a.probe_mode=='baseline' else root/'mod/SandboxOfElysium/sandbox'
         shutil.copytree(source,probe/'sandbox',dirs_exist_ok=True)
-        for helper in ('terrain_expansion_probe.lua','empty_probe.lua'):
+        for helper in ('terrain_expansion_probe.lua','empty_probe.lua','loadout_probe.lua','panel_probe.lua','cursed_probe.lua'):
             shutil.copy2(root/'tests'/helper,probe/helper)
         shutil.copy2(root/'mod/SandboxOfElysium/banner.tga',probe/'banner.tga')
         (probe/(modname+'.c5m')).write_text('icon "banner.tga"\ndescription "Private battlefield regression. Not distributed."\n')
         data_folder=profile/'coe5se_data'/modname;data_folder.mkdir(parents=True,exist_ok=True)
         mode=a.probe_mode if modname=='ZZSandboxBattlefieldProbe' else ('final' if a.probe_mode!='baseline' and (not a.battlefield_cases or 'final' in a.battlefield_cases.split(',')) else 'disabled')
-        (data_folder/'request.ini').write_text('[run]\nmode='+mode+'\nonly='+a.battlefield_cases+'\nterrain_candidates='+('1' if a.terrain_candidates else '0')+'\ndefer=1\n')
+        (data_folder/'request.ini').write_text('[run]\nmode='+mode+'\nonly='+a.battlefield_cases+'\nterrain_candidates='+('1' if a.terrain_candidates else '0')+'\ndefer='+('0' if a.probe_auto else '1')+'\n')
         shutil.copy2(backup/'profile-data/repaired-5d092932caf74c588295-1.ini',data_folder/'replay.ini')
         diagnostic=configparser.ConfigParser(interpolation=None)
         diagnostic.read(backup/'profile-data/diagnostics-5bd42749aa2c47d4ba1b-1.ini',encoding='utf-8-sig')

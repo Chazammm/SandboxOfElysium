@@ -1,4 +1,15 @@
 local M = {}
+M.labelLimit=48
+function M.displayName(u)return u.label and u.label~='' and u.label or u.name end
+function M.validLabel(label)
+    if type(label)~='string' or #label>192 or label:find('[%z\1-\31\127]') then return false,'Sandbox labels allow at most 48 Unicode characters without control characters.' end
+    if utf8 then
+        local ok,n=pcall(utf8.len,label)
+        if not ok or not n or n>M.labelLimit then return false,'Invalid UTF-8 or label longer than 48 characters.' end
+        for _,cp in utf8.codes(label)do if cp>=0x80 and cp<0xa0 then return false,'Control characters are not allowed in labels.' end end
+    elseif #label>M.labelLimit then return false,'Label longer than 48 characters.' end
+    return true
+end
 -- Identity bindings observed in the loaded vanilla terrain table. Availability
 -- still comes from the separate extender's verified capability list.
 M.terrainNames={[0]='Plain',[2]='Forest',[12]='Mountains',[107]='Swamp',[117]='Desert'}
@@ -43,6 +54,12 @@ function M.encode(s,mods)
     for i,name in ipairs(mods) do t.mods[tostring(i)]=name end
     for i,u in ipairs(s.units) do
         local row={monster=u.monster,name=u.name,team=u.team,x=u.x,y=u.y,item_count=#u.items,spell_count=#u.spells}
+        if u.label and u.label~='' then row.label=u.label;row.label_scope='sandbox_display_label' end
+        if u.equipment then
+            t.scenario.schema=2;row.equipment_count=#u.equipment;row.school_count=#(u.schools or {})
+            for j,v in ipairs(u.equipment) do row['equipment'..j..'_position']=v.position;row['equipment'..j..'_id']=v.id;row['equipment'..j..'_name']=v.name end
+            for j,v in ipairs(u.schools or {}) do row['school'..j..'_path']=v.path;row['school'..j..'_name']=v.name;row['school'..j..'_base']=v.base end
+        end
         for j,v in ipairs(u.items) do row['item'..j]=v end
         for j,v in ipairs(u.spells) do row['spell'..j]=v end
         -- A baseline is evidence about native initialization, not an arbitrary serialized unit.
@@ -60,7 +77,8 @@ function M.decode(t,catalog,activeMods)
     if type(t)~='table' or type(t.scenario)~='table' then return nil,'Missing scenario section' end
     local h=t.scenario
     local terrain=integer(h.terrain,0,100000)
-    if tonumber(h.schema)~=1 or not M.terrainNames[terrain] or h.size~='Native automatic' then return nil,'Unsupported scenario schema, terrain or field size' end
+    local schema=tonumber(h.schema)
+    if (schema~=1 and schema~=2) or not M.terrainNames[terrain] or h.size~='Native automatic' then return nil,'Unsupported scenario schema, terrain or field size' end
     local expected=M.terrainNames[terrain]
     if not catalog.terrainById or not catalog.terrainById[terrain] or catalog.terrainById[terrain].name~=expected then return nil,'Required native terrain unavailable or changed: '..expected end
     local n=integer(h.count,0,2000); if not n then return nil,'Invalid unit count (maximum 2000)' end
@@ -79,11 +97,36 @@ function M.decode(t,catalog,activeMods)
         if not m or m.name~=r.name then return nil,'Missing or changed unit: '..tostring(r.name)..' (#'..tostring(r.monster)..')' end
         local team,x,y=integer(r.team,1,2),integer(r.x,0,999),integer(r.y,0,19)
         if not team or not x or not y or M.at(s,x,y) then return nil,'Invalid or overlapping position for unit '..i end
-        local ni,ns=integer(r.item_count,0,8),integer(r.spell_count,0,30)
+        local ni,ns=integer(r.item_count,0,schema==2 and 20 or 8),integer(r.spell_count,0,30)
         if not ni or not ns then return nil,'Invalid equipment/spell list' end
         if not r.known_count and (ni>0 or ns>0) then return nil,'Configured unit is missing its native baseline' end
         local u=M.add(s,id,r.name,team,x,y)
-        for j=1,ni do local v=r['item'..j]; if not catalog.itemNames[v] then return nil,'Missing item: '..tostring(v) end; u.items[j]=v end
+        if r.label~=nil then
+            local good,why=M.validLabel(r.label)
+            if not good or (r.label_scope~=nil and r.label_scope~='sandbox_display_label') then return nil,why or 'Unsupported label scope' end
+            u.label=r.label~='' and r.label or nil
+        end
+        if r.school_count~=nil and r.equipment_count==nil then return nil,'Incomplete equipment/base-school configuration' end
+        if r.equipment_count~=nil then
+            if schema~=2 or r.known_count==nil then return nil,'Equipment configuration requires schema 2 and a native baseline' end
+            local ne,nc=integer(r.equipment_count,0,20),integer(r.school_count,0,16)
+            if not ne or not nc or ne~=ni then return nil,'Invalid equipment/school count' end
+            u.equipment={};u.schools={};local occupied,paths={},{}
+            for j=1,ne do
+                local p=integer(r['equipment'..j..'_position'],0,19);local item=integer(r['equipment'..j..'_id'],0,32767)
+                local name=r['equipment'..j..'_name'];local found=catalog.byItemId and catalog.byItemId[item]
+                if not p or occupied[p] or not found or found.name~=name then return nil,'Missing, changed or invalid equipment identity/position' end
+                occupied[p]=true;u.equipment[#u.equipment+1]={position=p,id=item,name=name};u.items[#u.items+1]=name
+            end
+            table.sort(u.equipment,function(a,b)return a.position<b.position end)
+            for j=1,nc do
+                local path=integer(r['school'..j..'_path'],0,469);local base=integer(r['school'..j..'_base'],1,32767);local name=r['school'..j..'_name']
+                if not path or not base or paths[path] or type(name)~='string' or name=='' or #name>128 then return nil,'Invalid saved base-school configuration' end
+                paths[path]=true;u.schools[#u.schools+1]={path=path,name=name,base=base}
+            end
+        else
+            for j=1,ni do local v=r['item'..j]; if not catalog.itemNames[v] then return nil,'Missing item: '..tostring(v) end; u.items[j]=v end
+        end
         for j=1,ns do local v=r['spell'..j]; if not catalog.spellKeys[v] then return nil,'Missing or changed spell: '..tostring(v) end; u.spells[j]=v end
         if r.known_count then
             local nk=integer(r.known_count,0,60); if not nk then return nil,'Invalid known spells' end

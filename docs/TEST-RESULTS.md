@@ -1,5 +1,11 @@
 # Verification results — 2026-11-13
 
+**2026-11-15 editor.8:** [Explicit cursed removal using the actual Crystal Heart diagnostic](TEST-CURSED-2026-11-15.md). Current local report: live identity/spell preservation, exact supported saved configuration, native bonus refusal and explicit injury-persistence limitation. Earlier reports below retain their historical scope.
+
+**2026-11-15 editor.7:** [Battlefield window, native item views and modded filters](TEST-PANEL-2026-11-15.md). New visible item equip/reject/cancel/replace/remove, magic/label/input and origin-filter evidence is separated from actual native API regressions and offline tests. This is the current local development report; older sections retain their historical scope.
+
+**2026-11-15 editor.6:** [Equipment, actual base schools and exact spell configuration](TEST-LOADOUT-2026-11-15.md). Current local source has 114 passing offline contracts; native and visible equipment/magic/persistence results and their exact build bindings are recorded separately there. Earlier sections below retain their historical scope.
+
 **2026-11-14 editor.5:** [Final snapshot, empty editor, terrain and filter follow-up](TEST-BATTLEFIELD-2026-11-14.md). The old empty final grid was reproduced with a living survivor. The separate Extender now captures before native cleanup and supports an explicitly commander-free editor. Actual UI observations, candidate/final native runs, offline contracts and unresolved cases are separated in that report. Earlier tables remain historical.
 
 **Current menu/mod follow-up:** [Grouped Battlefield menu and active CrabCult units](TEST-MENU-MODS-2026-11-14.md). Current normal DLL `63b293…`: 97 offline cases; all selected native regression groups pass, including two fights and exact rebuilding of the actual ten-unit user setup after fixing a deployment cycle. New CrabCult battle and visible menu/filter/mod-sprite results are separate from the historical prototype tests below. Natural conversions/transformations and complete render scenes remain unverified.

@@ -50,7 +50,7 @@ function D:snapshot(s,runtime)
         limits='24 model rows; 48 native rows; 256 nonempty raw grid cells; capped export, not complete engine state'},units={},nativeUnits={},cells={}}
     for i=1,math.min(24,#units) do
         local u=units[i];local live=runtime.live[u.id]
-        local row={id=u.id,model_id=u.id,monster=u.monster,name=u.name,team=u.team,saved_x=u.x,saved_y=u.y,live=live or 'none',native_id=live or 'none',
+        local row={id=u.id,model_id=u.id,monster=u.monster,name=u.name,sandbox_label=u.label or '',label_scope='sandbox_display_label; native name unchanged',team=u.team,saved_x=u.x,saved_y=u.y,live=live or 'none',native_id=live or 'none',
             saved_known=table.concat(u.baseline and u.baseline.known or {},'|'),saved_memorized=table.concat(u.spells or {},'|'),saved_items=table.concat(u.items or {},'|')}
         if live then
             row.hp=get(self.api,'unitHp',live);row.x=get(self.api,'unitBattleX',live);row.y=get(self.api,'unitBattleY',live)
@@ -62,6 +62,21 @@ function D:snapshot(s,runtime)
             row.actual_known=list(runtime.spellList,live,'unitKnownSpell',59)
             row.actual_memorized=list(runtime.spellList,live,'unitMemorizedSpell',29)
             row.actual_items=list(runtime.inventory,live)
+            local savedEquipment,savedSchools={},{}
+            for _,v in ipairs(u.equipment or {}) do savedEquipment[#savedEquipment+1]=v.position..':'..v.id..':'..v.name end
+            for _,v in ipairs(u.schools or {}) do savedSchools[#savedSchools+1]=v.path..':'..v.name..':base='..v.base end
+            row.saved_item_positions=table.concat(savedEquipment,'|');row.saved_base_schools=table.concat(savedSchools,'|')
+            if type(self.api.testFieldLoadoutState)=='function' then
+                local ok,state,reason=pcall(self.api.testFieldLoadoutState,live)
+                row.loadout_scope='owned editable field only; unavailable after battle or while fighting'
+                row.loadout_result=ok and type(state)=='table' and (state.complete and 'complete' or 'partial') or tostring(reason or state)
+                if ok and type(state)=='table' then
+                    local equipment,schools={},{}
+                    for _,v in ipairs(state.items or {}) do equipment[#equipment+1]=v.position..':type='..v.slotType..':item='..v.id end
+                    for _,v in ipairs(state.schools or {}) do schools[#schools+1]=v.path..':base='..v.base..':template='..v.templateBase..':bonus='..v.bonus..':effective='..v.level..':allowance='..v.allowance end
+                    row.actual_item_positions=table.concat(equipment,'|');row.actual_base_schools=table.concat(schools,'|')
+                end
+            end
             row.life_status=row.hp and (row.hp>0 and 'alive' or 'dead_or_retired') or 'unknown'
             row.model_ids_for_native=table.concat(aliases[live] or {},',')
             local n=rows[live]

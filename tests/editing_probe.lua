@@ -65,6 +65,7 @@ local function regression()
     test('incremental_priestess_both_teams_and_copy_move',function()
         local r,s,d=fresh();local original=r.live[1]
         api.giveItem(original,'A Chest Full of Fire');s.units[1].items=r:inventory(original)
+        if s.units[1].equipment then local L=require('sandbox.loadout');L.capture(r,s.units[1],assert(L.read(r,original)))end
         assert(#s.units[1].items>0,'configured item fixture not accepted')
         local spell=s.units[1].spells[1];if spell then assert(r:memorize(s.units[1],spell,false)) end
         assert(r:move(s.units[1],6,6));local before=signature(original)

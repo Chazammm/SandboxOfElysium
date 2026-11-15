@@ -35,7 +35,7 @@ local function inputFixture()
     local api={get=function(key)if key=='screenW' then return 800 elseif key=='screenH' then return 600 elseif key=='uiPointerX' then return px elseif key=='uiPointerY' then return py elseif key=='unitHp' then return 6 end end,
         battleUnitAt=function()return live end,battleScreenToCell=function()transforms=transforms+1;return cx,cy end}
     local s=M.new();local unit=M.add(s,13,'Spearman',1,6,6)
-    local u=setmetatable({api=api,scenario=s,runtime={open=true,live={[unit.id]=11}},phase='prepare',native=true,lastMouse=0,buttons={},diag={record=function()end}},U)
+    local u=setmetatable({api=api,scenario=s,runtime={open=true,live={[unit.id]=11}},selected=13,phase='prepare',native=true,lastMouse=0,buttons={},diag={record=function()end}},U)
     return u,function(x,y,a,b,id)px=x;py=y;cx=a;cy=b;live=id end,function()return transforms end
 end
 test('existing native unit gets context before placement',function()
@@ -81,7 +81,7 @@ test('physical hold survives consumed frame masks and places only on new drag ce
         testFieldPointerButtons=function()return physical end,
         battleScreenToCell=function()return cell,6 end,battleUnitAt=function()return -1 end,
         wrap=function(site,fn)if site=='BATTLE_WAIT' then wait=fn end end}
-    local u=U.new(api);u.phase='prepare';u.native=true;u.runtime={open=true,live={}};u.scenario=M.new()
+    local u=U.new(api);u.phase='prepare';u.native=true;u.runtime={open=true,live={}};u.scenario=M.new();u.selected=13
     for frame=1,8 do
         engine=frame%2==1 and 2 or 0 -- simulate the consumable native frame mask
         if frame==5 then cell=7 end

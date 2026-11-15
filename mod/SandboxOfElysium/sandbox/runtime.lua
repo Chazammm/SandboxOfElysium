@@ -1,5 +1,6 @@
 local M=require('sandbox.model')
 local Integrity=require('sandbox.integrity')
+local Loadout=require('sandbox.loadout')
 local R={}; R.__index=R
 local function same(a,b)
     if #a~=#b then return false end
@@ -20,7 +21,7 @@ function R:emptyEditorAvailable()
     return ok and type(caps)=='table' and caps.emptyEditor==1
 end
 function R:inventory(unit)
-    local t={}; for i=0,7 do local item=self.api.get('unitItem',unit,i)
+    local t={}; for i=0,Loadout.available(self.api) and 19 or 7 do local item=self.api.get('unitItem',unit,i)
         if item and item>=0 then t[#t+1]=self.api.get('itemName',item) end
     end; return t
 end
@@ -30,6 +31,8 @@ function R:spellList(unit,key,max)
     end; return t
 end
 function R:configure(u,unit)
+    if Loadout.available(self.api) then return Loadout.configure(self,u,unit,true) end
+    if u.equipment or u.schools then return false,'This scenario requires the newer experimental equipment/base-school API. Saved setup kept.' end
     local known=self:spellList(unit,'unitKnownSpell',59)
     if not u.baseline then
         u.baseline={known=known}; u.items=self:inventory(unit); u.spells=self:spellList(unit,'unitMemorizedSpell',29)
@@ -231,6 +234,15 @@ function R:recover()
     self.blocked=true
     return false,'Preserved setup could not be reopened exactly. Editing stays locked; recovery file and diagnostics remain available. '..tostring(why)
 end
+function R:setLabel(u,label)
+    local valid,why=M.validLabel(label);if not valid then return false,why end
+    local ready,observed=self:ready(self.current);if not ready then return false,observed end
+    local found=false;for _,actor in ipairs(self.current.units)do if actor==u then found=true;break end end
+    if not found or not self.live[u.id] then return false,'Selected unit changed; reopen its window.' end
+    u.label=label~='' and label or nil;self:accept(self.current,observed)
+    if self.diag then self.diag:record('sandbox_label',{model_id=u.id,native_id=self.live[u.id],length=#label,scope='sandbox_display_label'})end
+    return true
+end
 function R:build(s,nativeDeployment)
     local function reject(message,details)
         local current=self.current or s;local snapshot=self:snapshot(current)
@@ -249,6 +261,7 @@ function R:build(s,nativeDeployment)
         return reject('Empty teams need the updated experimental empty-editor API. Setup kept; restart with SandboxOfElysium-Testen.bat.')
     end
     for _,u in ipairs(s.units) do
+        if (u.equipment or u.schools) and not Loadout.available(self.api) then return reject('This saved equipment/base-school setup needs the newer experimental Extender. Current army kept.') end
         local m=self.catalog.byId[u.monster]
         if not m or m.name~=u.name then return reject('Required unit is missing or changed. Current field kept.',{name=u.name,monster=u.monster}) end
         if u.baseline and #u.baseline.known>0 and type(self.api.setTestFieldSpells)~='function' then
@@ -272,11 +285,14 @@ function R:build(s,nativeDeployment)
     local old=self.open and self.current and M.copy(self.current) or nil
     local before=old and self:snapshot(old) or self:snapshot(s)
     self.lastConfig=nil
+    -- Configuration may upgrade earlier legacy actors before a later actor is
+    -- rejected. Recovery provenance must retain the exact requested scenario.
+    local requested=M.copy(s)
     local ok,why=self:_build(s,nativeDeployment)
     if ok then local good,observed=self:check(s);if good then self:accept(s,observed);self.spellRepairProblems=nil;return true end;ok=false;why=observed end
     local rejectedSpells=M.copy(self.spellRepairProblems)
-    local rejectedScene=rejectedSpells and next(rejectedSpells) and M.copy(s) or nil
-    if rejectedScene and not self.originalSpellRecovery then self.originalSpellRecovery=M.copy(s) end
+    local rejectedScene=rejectedSpells and next(rejectedSpells) and requested or nil
+    if rejectedScene and not self.originalSpellRecovery then self.originalSpellRecovery=M.copy(requested) end
     local failureContext=M.copy(self.lastConfig or {})
     local restored,restoreWhy=false,'no previous open field'
     if old then restored,restoreWhy=self:_build(old);if restored then
