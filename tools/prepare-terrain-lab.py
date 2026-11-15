@@ -30,7 +30,7 @@ runtime=lab/'runtime';profile=lab/'profile'
 def no_links(path):
     if not path.exists(): return
     if path.lstat().st_file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT:
-        raise RuntimeError(f'Verknuepfter Testpfad nicht erlaubt: {path}')
+        raise RuntimeError(f'Linked test path is not allowed: {path}')
     if path.is_dir():
         for child in path.iterdir(): no_links(child)
 for parent in (root,root/'private',lab):
@@ -40,7 +40,7 @@ no_links(lab)
 if (lab/'identity.json').exists():
     existing=json.loads((lab/'identity.json').read_text())
     if Path(existing['profile']).resolve()!=profile.resolve() or Path(existing['data']).resolve()!=(game/'data').resolve():
-        raise RuntimeError('Isoliertes Profil/Datenpfad stimmt nicht; Vorbereitung abgebrochen.')
+        raise RuntimeError('Isolated profile/data path mismatch; preparation aborted.')
 no_links(root/'mod/SandboxOfElysium')
 if a.launcher_nonce:
     if len(a.launcher_nonce)!=32 or any(c not in '0123456789abcdef' for c in a.launcher_nonce):
@@ -82,7 +82,7 @@ else:
     names=('CoE5SE','TerrainProbe','SandboxOfElysium') if a.sandbox else ('CoE5SE','TerrainProbe')
 if a.crabcult:
     source=base/'profile/mods/CrabCult';target=profile/'mods/CrabCult'
-    if not (source/'CrabCult.c5m').is_file(): raise RuntimeError('Vorhandene private CrabCult-Kopie fehlt.')
+    if not (source/'CrabCult.c5m').is_file(): raise RuntimeError('The existing private CrabCult copy is missing.')
     no_links(source);no_links(target)
     if target.exists():
         for file in target.rglob('*'):

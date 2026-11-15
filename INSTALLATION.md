@@ -1,51 +1,50 @@
-# Installation und Test — editor.8
+# Installation and testing — editor.8
 
-## Zuerst den richtigen Stand wählen
+## Choose the correct build
 
-Der aktuelle Repository-Stand **0.1.0+editor.8** ist eine experimentelle Windows-Entwicklungsversion für **Conquest of Elysium 5.43 x64**. Er enthält die Sandbox-Mod, Dokumentation und lokale Entwicklungswerkzeuge. Er ist **kein vollständiges, allgemein installierbares Spielerpaket**.
+The repository contains **0.1.0+editor.8**, an experimental Windows development version for **Conquest of Elysium 5.43 x64**. It includes the mod, documentation and local development tools. It is not a complete first-time player package.
 
-Der vollständige Editor benötigt zusätzliche APIs aus einem **separaten, lokal gebauten experimentellen CoE5SE 3.4.0**. Ein unveränderter offizieller CoE5SE, auch 3.4.4, stellt nicht alle benötigten Funktionen bereit. Ein „Source code (zip)“-Download ersetzt diese Abhängigkeit nicht. Der kleine vorbereitete Ranged-Beitrag allein genügt ebenfalls nicht für den ganzen Editor.
+The full editor needs additional APIs from a **separately built experimental CoE5SE**. The existing local experiment is based on 3.4.0; source contributions against 3.4.4 are being prepared separately. Unmodified official CoE5SE, including examined 3.4.4, does not implement the full editor contract. The Ranged fix alone is also insufficient. A GitHub source ZIP does not install these dependencies.
 
-CoE5SE-Dateien oder dessen veränderte DLL werden hier nicht mitgeliefert: Die [CoE5SE-Lizenz](https://github.com/musical-pianist/coe5se/blob/d96f2b784e97e115022a2598da2c821dd9520135/LICENSE.txt) untersagt das Beilegen in Mods. Ein vollständiges öffentliches Experiment-Komplettpaket ist deshalb derzeit nicht verfügbar. Spiel, Schlüsseldateien und andere Mods werden ebenfalls nicht verteilt. Die bisherigen 0.1.0-Prototyp-Nachweise in älteren Berichten sind keine Abnahme des aktuellen Editors mit einem offiziellen Extender.
+No CoE5SE files or modified DLL are bundled here. Its [separate license](https://github.com/musical-pianist/coe5se/blob/d96f2b784e97e115022a2598da2c821dd9520135/LICENSE.txt) prohibits including them with a mod. The game, keys and third-party mods are not distributed either. Older prototype test reports do not certify this editor with stock upstream.
 
-## Auf dem bereits eingerichteten Entwicklungsrechner
+The [source-only 3.4.4 review stack](https://github.com/Chazammm/coe5se/tree/review/sandbox-complete-20261115/docs/sandbox-review) contains the capability matrix, dependency order, build/test bindings and unsigned PR drafts. Experienced developers can review/build that separate source under its own terms and upstream build instructions. It is not a release installer. The existing BAT still builds the original separate local Extender checkout; this contribution task does not silently repoint or replace it.
 
-Hier sind die getrennten Spielkopien und der experimentelle Extender bereits vorhanden. Dafür gilt:
+## On the existing development computer
 
-1. Ein noch laufendes Sandbox-Testspiel schließen. Der Starter verändert keinen bereits laufenden Prozess.
-2. Im Ordner **Sandbox of Elysium** die Datei **SandboxOfElysium-Testen.bat** doppelt anklicken.
-3. Die Konsole prüft Spiel, lokale Mod-Dateien, Extender-Build und das eigene Testprofil. Falls notwendig wird der separate Extender mit der vorhandenen Toolchain neu gebaut. Ein Fehler lässt das Fenster offen. Die Profilumleitung muss vom neu gestarteten Spiel bestätigt werden; ohne Bestätigung wird der Start abgebrochen.
-4. Im Hauptmenü **Sandbox** wählen. Unter **Battlefield** **Open with native deployment (reposition units)** öffnen.
-5. Oben **Team A** oder **Team B** wählen, rechts eine Einheit suchen, **Select** und mit Rechtsklick auf einer freien Zelle platzieren. Ein zweiter Klick auf dasselbe **Select** hebt die Auswahl wieder auf.
-6. Mindestens eine Einheit pro Team setzen und **Start battle** wählen. Nach dem Kampf **Back to Sandbox (restore setup)**, **Reset setup** oder **Rematch** verwenden.
+1. Close a running isolated Sandbox test game.
+2. Double-click **SandboxOfElysium-Testen.bat** in **Sandbox of Elysium**.
+3. Let the launcher check paths, synchronize local mod files and build/reuse the separate Extender. Errors leave its window open. A fresh response from the running game must confirm the private profile; otherwise it aborts.
+4. Choose **Sandbox → Battlefield → Open with native deployment (reposition units)**.
+5. Choose Team A or B, search a unit, click Select, then right-click free ground. Click Select again to deselect. Both teams may be empty while editing; Clear battlefield removes all actors.
+6. Put at least one actor on each team and choose Start battle. Afterward try Back to Sandbox (restore setup), Reset setup and Rematch.
 
-Der Starter benötigt Windows PowerShell, Python3, die bereits vorbereitete `private/lab/identity.json` und `private/terrain-lab`-Umgebung, die eigene geprüfte CoE5-5.43-Installation, den separaten Ordner `../SandboxOfElysium-ExtenderLab-current` und die vorhandene llvm-mingw-Toolchain. Diese privaten Bestandteile sind absichtlich nicht im Git-Download. Die BAT ist **kein Erstinstaller für fremde Rechner**. `SandboxOfElysium-Testen.bat -CheckOnly` prüft die vorhandenen Pfade ohne einen Spielstart.
+Prerequisites: Windows PowerShell, Python 3, prepared `private/lab/identity.json` and `private/terrain-lab`, the owned verified game, separate `../SandboxOfElysium-ExtenderLab-current` source and the existing llvm-mingw toolchain. These private components are absent from Git. **The BAT is not an installer for another computer.** `SandboxOfElysium-Testen.bat -CheckOnly` checks the existing paths without launching. Optional `-CrabCult` uses already installed private files; CrabCult is not included.
 
-Die normale CoE5-Installation und ihr Profil werden nicht aktualisiert. Szenarien und Diagnosen dieses Teststarters liegen unter **private/terrain-lab/profile/coe5se_data/SandboxOfElysium**. Vor manuellen Änderungen diese eigenen Dateien sichern; der Starter löscht sie nicht. Für bereits vorhandene private CrabCult-Dateien kann `-CrabCult` verwendet werden; diese Mod ist nicht enthalten.
+The launcher uses only its private runtime/profile. Scenario and diagnostic files are under **private/terrain-lab/profile/coe5se_data/SandboxOfElysium**. Back up your own files before manual changes. The normal installation/profile is not updated and existing data is not deleted.
 
-## Installation auf einem anderen Rechner
+## On another computer
 
-1. Eine eigene passende Windows-Version von CoE5 installieren. Den offiziellen Extender nur über die [offizielle CoE5SE-Seite](https://github.com/musical-pianist/coe5se) und dessen Anleitung beziehen. Das allein macht editor.8 noch nicht vollständig nutzbar.
-2. Dieses Repository herunterladen oder klonen. Die eigentlichen Mod-Dateien liegen unter **mod/SandboxOfElysium**. Nicht den gesamten Repository-Ordner als CoE5-Mod installieren.
-3. Für den aktuellen vollständigen Editor sind ein separat rechtmäßig bereitgestellter passender experimenteller Extender und eine passend eingerichtete isolierte Testkopie erforderlich. Beides wird durch diesen Download nicht installiert. Ohne diese Voraussetzungen hier stoppen; keine DLLs aus unbekannten Quellen einsetzen und keine reguläre Installation durch einen experimentellen Build ersetzen.
-4. Sobald eine unabhängig eingerichtete Testkopie mit dem passenden Extender vorhanden ist, den vollständigen Ordner **mod/SandboxOfElysium** in deren eigenes **mods**-Verzeichnis kopieren und **CoE5SE** sowie **SandboxOfElysium** im ausschließlich dafür verwendeten Profil aktivieren. Die `.c5m` muss direkt im Ordner SandboxOfElysium liegen. Vorhandene Szenarien gesondert behalten. Der konkrete zusätzliche Profilaufbau gehört zur separaten Testumgebung; die vorhandene BAT setzt ihn voraus.
+1. Install your own compatible Windows CoE5. Obtain official CoE5SE and its instructions from its [official repository](https://github.com/musical-pianist/coe5se). Stock CoE5SE alone does not enable this full development editor.
+2. Download/clone this repository. The mod folder is **mod/SandboxOfElysium**; the entire repository is not a game mod folder.
+3. Full editor.8 currently requires a separately obtained and appropriately built compatible experimental Extender plus an independently prepared isolated game/profile. This download sets up neither. Do not replace a regular installation with the experimental build.
+4. Once that separate test environment is ready, copy the complete **SandboxOfElysium** mod folder into its own **mods** directory and enable CoE5SE and SandboxOfElysium in its test profile. The `.c5m` belongs directly inside the SandboxOfElysium folder. Preserve existing scenario files separately.
 
-Mac, Linux, Multiplayer und beliebige andere Modkombinationen sind für diesen Entwicklungsstand nicht abgenommen. Eine neue öffentliche Extender-Freigabe müsste gesondert erfolgen; der Mod-Download behauptet keine solche Freigabe.
+Mac, Linux, multiplayer and arbitrary mod combinations have not been accepted for this editor. A source review branch is not a public binary release.
 
-## Items, Magie und bekannte Grenzen
+## Equipment, magic and limits
 
-- Ohne aktive Itemauswahl rechts auf eine gesetzte Einheit → **Edit**. **Items** zeigt ihre tatsächlichen anatomischen Plätze. **Remove → Remove cursed item** entfernt ein verfluchtes Item nach ausdrücklicher Bestätigung; **Cancel** behält es. Zum Ersetzen zuerst entfernen.
-- **Permanente Verletzungen werden dadurch nicht geheilt.** Der aktuelle Szenariotyp speichert vollständige native Verletzungen/HP nicht; nach Laden/Reset/Rematch können diese abweichen. Neue Augen-/Herzimplantate bleiben geschützt.
-- Wenn das Entfernen eines Itembonus memorierte Zauber ungültig machen würde, bleibt die Ausrüstung unverändert. Die betroffenen Zauber im Tab **Magic Schools & Spells** selbst abwählen und erneut versuchen. Es werden keine Zufallszauber stillschweigend ersetzt.
-- Beide Teams dürfen beim Aufbau leer sein; ein Kampf braucht jeweils mindestens eine Einheit. **Clear battlefield** darf das Feld vollständig leeren.
-- **Modded Items / Modded schools** beziehen sich auf nachgewiesene geladene Herkunft; unklare Herkunft bleibt Unknown. Fremde Mods müssen separat installiert und aktiv sein.
+- Without a selected item, right-click a placed actor → Edit. Items shows actual anatomical positions. Remove → Remove cursed item confirms cursed removal; Cancel keeps it. Remove before replacing a cursed item.
+- Permanent injuries are not healed by removing an existing implant. Full native HP/affliction state is not serialized and can differ after Load/Reset/Rematch. New eye/heart implants remain unsupported.
+- Removing a bonus or lowering a school refuses unchanged if memorization would become invalid. Explicitly deselect those spells in Magic Schools & Spells, then retry. Random spells are not silently changed.
+- Existing base schools can be adjusted within 1–3. Unlock learns eligible spells without memorizing. Native item/unit Inspect is read-only.
+- Modded Items / Modded schools use observed loaded provenance. Unknown remains Unknown. Install and enable third-party mods separately.
+- Save/Load support empty and one-sided setups. Start battle requires at least one actor per team and otherwise keeps the editor/setup unchanged.
 
-[Aktueller Crystal-Heart-Test mit Grenzen](docs/TEST-CURSED-2026-11-15.md), [Fenster und Mod-Filter](docs/TEST-PANEL-2026-11-15.md), [Starter-Prüfungen](docs/TEST-LAUNCHER-2026-11-13.md).
+Read [cursed-item tests](docs/TEST-CURSED-2026-11-15.md), [window/mod-filter tests](docs/TEST-PANEL-2026-11-15.md) and [launcher tests](docs/TEST-LAUNCHER-2026-11-13.md) for exact coverage.
 
-## Fehler und Entfernen
+## Troubleshooting and uninstalling
 
-Bei einem Startfehler die Konsolenmeldung lesen; fehlende private Testdateien werden durch einen erneuten Git-Download nicht erzeugt. **Editing locked**: **Export Diagnostics**, dann die angebotene sichere Wiederherstellung verwenden. Keine Szenario-/Recovery-Datei löschen, um eine Sperre zu umgehen.
+Use Export Diagnostics on the battlefield or in a recovery message. The dialog names its file. Preserve the original scenario; an unverified rollback must not be ignored. The export is bounded and distinguishes missing data from complete coverage. Logs depend on loader stage: `coe5mod.log` or `coe5se_logs/coe5mod.log` in the relevant test environment.
 
-Zum Melden im Editor **Export Diagnostics** wählen und die neu angelegte `.ini` gezielt prüfen/weitergeben. Nicht das ganze private Profil, Spielschlüssel oder komplette Rohlogs veröffentlichen. Testdaten bleiben im oben genannten separaten Ordner.
-
-Zum Entfernen zuerst das Testspiel schließen. In einem selbst eingerichteten Testprofil SandboxOfElysium deaktivieren; die gesicherten Szenarien nach Wunsch behalten. Den gesamten privaten Testordner erst nach bewusster eigener Sicherung/Entscheidung manuell entfernen. Die reguläre CoE5SE-Installation muss für diese lokale Testumgebung nicht geändert oder deinstalliert werden.
+Disable the mod and remove its mod folder to uninstall. Keep scenario data under `coe5se_data/SandboxOfElysium` if needed. The development BAT does not install or remove the normal Extender.

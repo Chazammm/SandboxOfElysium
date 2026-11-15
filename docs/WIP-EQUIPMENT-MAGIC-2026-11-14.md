@@ -1,26 +1,9 @@
-# Ausrüstung und Magiestufen — laufende Entwicklung
+# Equipment and magic investigation — historical work notes
 
-**Abschlussstand 15.11.2026: editor.6 ist lokal umgesetzt und geprüft.** Maßgeblich sind [der aktuelle Testbericht mit Build-/Sitzungsbindung und Grenzen](TEST-LOADOUT-2026-11-15.md), die README und die separate `SANDBOX_LOADOUT_EXPERIMENT.md`. Die Abschnitte darunter sind erhaltene historische Arbeitsnotizen vom Beginn der Untersuchung; ihre damaligen offenen Tests/Beschränkungen sind keine aktuelle Funktionsliste.
+This English consolidation retains the historical scope and key findings. [The complete original report at the preserved source commit](https://github.com/Chazammm/SandboxOfElysium/blob/b67e8a344b942df1d65d7ce23939891bd74c9f59/docs/WIP-EQUIPMENT-MAGIC-2026-11-14.md) remains in Git history; no history was rewritten. Its tests are not automatically tests of the current build.
 
-Ausgangspunkt: Sandbox `11c572a`, separater Extender `d96f2b7` mit erhaltenen lokalen Patches. Sicherung von Quellen und sämtlichen vorhandenen Sandbox-Profildaten: privater Pfad in `private/equipment-baseline-path.txt`. Keine Veröffentlichung oder PR beauftragt.
+This investigation was completed locally as editor.6 on2026-11-15. See [the bound loadout report](TEST-LOADOUT-2026-11-15.md) for acceptance; early open questions are historical, not a current feature list.
 
-## Bestätigte Quellenbefunde
+Source findings: upstream3.4.0 already has twenty anatomical positions, per-unit slot types and native implant checks. Eight name-only slots cannot represent that contract. Native base-school levels come from monster attack rows, while bonuses are separate. A safe per-instance implementation must serve base/effective readers and actual combat attack selection, scoped to field/session/generation/monster. New eye/heart effects change permanent injury flags and cannot be treated as ordinary reversible equipment.
 
-- Upstream 3.4.0 besitzt in `item_slots.h` / `item_slot_hooks.h` bereits 20 Positionen, monster-/einheitsabhängige Slottypen und native Augen-/Herzprüfungen. Die bisherige Sandbox verwendet nur acht Positionen und Namen, was für mehrfache Slots und doppelte Namen nicht ausreicht.
-- Native CoE5 5.43 (`489d0b82…`) speichert die Basismagiestufen in den Zauberangriffszeilen der Monstervorlage. `unitSpellWeaponLevel` liest deren Maximum, `unitPathLevel` addiert den getrennten nativen Bonus. Ein direktes Schreiben der Vorlage würde andere Instanzen verändern und ist ungeeignet.
-- Native Kampfaktionen lesen den Zauberangriff durch `UNIT_ATTACK_ROW`, während Karten und Limits `UNIT_PATH_LEVEL` verwenden. Ein möglicher eigener Instanzzustand muss alle relevanten Leser konsistent bedienen und an Testfeldbesitz, Generation und Monsteridentität gebunden sein. Dieser Ansatz ist noch nicht als funktionierend getestet.
-- Native Equip-Effekte verändern bei Augen-/Herzimplantaten bleibende Anatomie-/Verletzungsflags. Solche neuen Implantate werden zunächst ausdrücklich abgelehnt, solange deren vollständige Rücknahme nicht verifiziert ist. Normale Slotzuordnung und native Kompatibilität sind davon zu unterscheiden.
-
-## Geplante sichere Umsetzung (noch keine Abnahme)
-
-Atomarer Testfeld-Konfigurationsvertrag für Positions-/Item-ID-Paare, vorhandene Basisschulen, bekannte und memorierte Zauber; native Rückleseprüfung und überprüfter Rollback. Normale Kampagnen bleiben außerhalb des Besitzbereichs. Itemersetzung muss ausdrücklich bestätigt werden, verfluchte Items bleiben geschützt. Alte Szenarien werden erhalten und vorsichtig migriert; neue Konfigurationen benötigen eindeutige Item-IDs mit Namen und Slotposition sowie Schul-IDs mit Namen.
-
-## Erster echter Nachweis — 15.11.2026, noch keine vollständige Abnahme
-
-Nach einem abgewiesenen ersten Hook-Aufbau und einem eingegrenzten Nullzeigerfehler bei der Item-Vorprüfung wurde der native Einstieg korrigiert. Die isolierten Fehlversuche bleiben privat erhalten und werden nicht als PASS gezählt. Kein normaler Spielprozess wurde verwendet.
-
-DLL `084066b4…`, Sitzung `f76d96ac…`: `vertical_item_school_native_readback` besteht im echten Spiel. Druid's Apprentice #594, Druidism #39: Basis 1→2, Bonus 0, effektive Stufe 2, Kapazität 3; Item #214 an Position 6 (Oberfläche: Position 7). Vollständiges Schließen und Wiederaufbauen aus Schema 2 erhält diese Konfiguration.
-
-Anschließend tatsächlich sichtbar über Rechtsklick → Edit bedient: Items, anatomische Positionen, Misc-Filter, Namenssuche `am` (13 Treffer), Auswahl von Amulet of Anti Magic #153, Position 7 und ausdrückliche Bestätigung. Magiemenü: Basis 1→2, Lernen von Briar Cage #350 Stufe 2 ohne automatische Memorierung, dann ausdrückliche Memorierung als dritter Zauber. Die beiden ursprünglichen Zauber Befriend Animal #344 und Vine Arrow #347 bleiben erhalten. Die echte native Karte zeigt Druidism level 2 und 3/3 memorierte Zauber. Rechtsklick auf den belegten nativen Ausrüstungsslot öffnet die echte Itemkarte „Amulet of Anti Magic“, MR +3; die Einheit zeigt MR 11. Inspect anschließend unverändert geschlossen, Diagnosen exportiert und über Main menu/Quit beendet.
-
-Private Belege: `private/equipment-runs/vertical-0840/` und fünf frisch gespeicherte Ansichten unter `private/equipment-ui-captures/`. Ein altes, nicht zuordenbares Bildschirmfoto wird nicht als Nachweis benutzt. Bisherige 97 Offline-Fälle und neun neue Identitäts-/Persistenzfälle bestehen. Ausstehend: vollständige native Fehler-/Mod-/Kampf-/Reset-/Rematch-Matrix und abschließende Abnahme des endgültigen Quellenstands.
+The implemented direction became identity-based schema2 equipment/schools and an atomic native transaction with exact lists/readback/rollback. The first vertical evidence was not full acceptance: Druid's Apprentice received Amulet of Anti Magic153 at position7, Druidism39/base2, learned/memorized Briar Cage350, while original spells remained. Native unit/item cards showed the effects. Subsequent broader acceptance and unsupported cases belong to the completed loadout and later panel/cursed reports. Original sources, scenarios and dirty Extender work were preserved.

@@ -1,5 +1,7 @@
 # Verification results — 2026-11-13
 
+**2026-11-15/16 current upstream port:** [Five CoE5SE 3.4.4 source contributions and combined verification](TEST-API-CONTRIBUTIONS-2026-11-15.md). Final combined native runs pass 21 standard, 14 fixture and four placement groups (including repeats); visible evidence and final-revision limits are distinguished. Existing product Lua is unchanged. Earlier results below are not automatically later-build acceptance.
+
 **2026-11-15 editor.8:** [Explicit cursed removal using the actual Crystal Heart diagnostic](TEST-CURSED-2026-11-15.md). Current local report: live identity/spell preservation, exact supported saved configuration, native bonus refusal and explicit injury-persistence limitation. Earlier reports below retain their historical scope.
 
 **2026-11-15 editor.7:** [Battlefield window, native item views and modded filters](TEST-PANEL-2026-11-15.md). New visible item equip/reject/cancel/replace/remove, magic/label/input and origin-filter evidence is separated from actual native API regressions and offline tests. This is the current local development report; older sections retain their historical scope.

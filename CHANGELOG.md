@@ -1,5 +1,10 @@
 # Changelog
 
+## Documentation and upstream API review — 2026-11-15
+
+- Maintain current documentation, installation instructions, launcher messages and future repository work in English. Earlier detailed reports have English consolidations and links to their preserved source-era originals in Git history.
+- Prepare the separate source-only CoE5SE 3.4.4 contribution stack, capability matrix, English PR drafts and exact native test bindings. Product Lua is unchanged; no Extender binary, new release or PR is included. See docs/TEST-API-CONTRIBUTIONS-2026-11-15.md.
+
 ## Unreleased — editor.8 explicit cursed removal, 2026-11-15
 
 - Permit explicitly confirmed removal of one held cursed item through a capability-gated, identity/position/item-bound native transaction. Keep ordinary cursed replacement protected; never change a shared item definition.
@@ -67,7 +72,7 @@
 
 ## Unreleased — local terrain experiment, 2026-11-13
 
-- Root-level Windows BAT launcher for the current local Sandbox, guarded private profile, automatic separate extender builds/cache and runtime capability/profile confirmation; includes actual BAT/UI tests and German instructions.
+- Root-level Windows BAT launcher for the current local Sandbox, guarded private profile, automatic separate extender builds/cache and runtime capability/profile confirmation; includes actual BAT/UI tests and instructions (now maintained in English).
 
 - Capability-gated Plain/Forest selector, terrain scenario validation/persistence and report metadata, using a separate experimental CoE5SE 3.4.0 patch.
 - Explicit native-deployment preparation when changed terrain blocks saved cells; exact saved deployment remains required for Reset/Rematch.
