@@ -190,7 +190,7 @@ else
         local name,path=d:export({fixture='distinct duplicate uniques, edit/delete/reuse, Off refusal, Save/Load/reset'},r:snapshot(reset));assert(name,path)
         results.multi_diagnostic={name=name,distinct_instances=1,spell_item_independence=1,off_refused_before_mutation=1}
         closed('multi_reset',r,roster(reset,r))
-        local allowed,reason=api.openTestField{commander=207,spell=-1,enemies={{207,1}}}
+        local allowed,reason=api.openTestField{commander=207,spell=-1,enemies={{207,1}},terrain=0}
         assert(not allowed and reason=='unique_count','default unique semantics were changed: '..tostring(reason))
         local final=lifecycle('multi_default_guard');assert(final.creationDepth==0 and final.uniqueOverrideDepth==0)
     end)

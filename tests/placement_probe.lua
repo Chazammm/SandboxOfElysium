@@ -95,7 +95,7 @@ else
         local ok=r:add(s,202,1,22,2);assert(not ok and not r.blocked);checked(r,s,before)
         checkpoint('unique_refused',s,r,{native_exists=1,native_count=1,lua_duplicate=1,old_state_unchanged=1})
         r:close()
-        ok=api.openTestField{commander=202,enemies={{202,1}}};assert(not ok,'cross-side duplicate unique accepted')
+        ok=api.openTestField{commander=202,enemies={{202,1}},terrain=0};assert(not ok,'cross-side duplicate unique accepted')
     end)
     test('large_placement_delete_reuse_spells_items',function()
         local r,s,d=fresh()
