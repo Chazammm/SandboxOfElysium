@@ -1,5 +1,16 @@
 -- Own native regression, activated explicitly in the private launcher profile.
 local api=coe5
+-- coe5.setTestFieldSpells became part of coe5.setTestFieldConfiguration (CoE5SE pull request #2):
+-- this keeps the unit's own items and school levels and sets only the two spell lists.
+local function setSpells(unit,state)
+    local loadout,why=api.testFieldLoadoutState(unit)
+    if not loadout then return false,why end
+    local items={}
+    for i=1,20 do local slot=loadout.items[i];items[i]=slot and slot.id or -1 end
+    local schools={}
+    for _,school in ipairs(loadout.schools) do schools[#schools+1]={school.path,school.base} end
+    return api.setTestFieldConfiguration(unit,{items=items,schools=schools,known=state.known,memorized=state.memorized})
+end
 local M=require('sandbox.model')
 local C=require('sandbox.catalog')
 local results={environment={scope='actual native game API, no simulated combat'}}
@@ -88,8 +99,8 @@ local function regression()
         assert(r.emptyEditor and r.primaryId==nil,'production runtime did not use the commander-free editor')
         local id=tonumber(s.units[1].baseline.known[1]:match('^(%d+):'))
         local bad={{known={id,id},memorized={}},{known={-1},memorized={}},{known={[2]=id},memorized={}},{known={},memorized={id}},{known={'1'},memorized={}},{known=true,memorized={}}}
-        for i,state in ipairs(bad) do local ok,why=api.setTestFieldSpells(unit,state);assert(not ok and why,'bad state accepted '..i);assert(signature(unit)==before) end
-        local ok,why=api.setTestFieldSpells(-1,{known={},memorized={}});assert(not ok and why=='bad_unit')
+        for i,state in ipairs(bad) do local ok,why=setSpells(unit,state);assert(not ok and why,'bad state accepted '..i);assert(signature(unit)==before) end
+        local ok,why=setSpells(-1,{known={},memorized={}});assert(not ok and why=='bad_unit')
         local removed,candidate=r:remove(s,s.units[1]);assert(removed,tostring(candidate));s=candidate
         assert(#s.units==1 and M.count(s,1)==0 and M.count(s,2)==1 and r.live[1]==nil,'first ordinary Team A unit could not be removed')
         local ready,reason=r:ready(s);assert(ready,tostring(reason));assert((api.get('unitHp',unit)or 0)<=0)
@@ -117,7 +128,7 @@ local function regression()
         local snapshot=M.copy(s);local denied=0
         local observer=api.observe('BATTLE_ADVANCE_UNIT',function()
             if not probeFight then return end
-            local accepted,reason=api.setTestFieldSpells(r.live[1],{known={},memorized={}})
+            local accepted,reason=setSpells(r.live[1],{known={},memorized={}})
             if not accepted and reason=='in_fight' then denied=denied+1 end
         end)
         local report=Report.new(api)

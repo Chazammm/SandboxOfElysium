@@ -264,7 +264,7 @@ function R:build(s,nativeDeployment)
         if (u.equipment or u.schools) and not Loadout.available(self.api) then return reject('This saved equipment/base-school setup needs the newer experimental Extender. Current army kept.') end
         local m=self.catalog.byId[u.monster]
         if not m or m.name~=u.name then return reject('Required unit is missing or changed. Current field kept.',{name=u.name,monster=u.monster}) end
-        if u.baseline and #u.baseline.known>0 and type(self.api.setTestFieldSpells)~='function' then
+        if u.baseline and #u.baseline.known>0 and type(self.api.setTestFieldSpells)~='function' and not Loadout.available(self.api) then
             local before=self:snapshot(self.current or s)
             self:failure('rebuild','Missing deterministic spell restoration API',self.current or s,before,'unchanged',{name=u.name})
             return false,'Keeping saved caster spells requires the experimental editor API. Current army kept; Export Diagnostics for details.'
@@ -448,7 +448,7 @@ function R:add(s,monster,team,x,y,template)
     if not healthy then return false,previous end
     if M.at(s,x,y) or x<0 or x>=self.width or y<0 or y>=20 then return refused('Cell occupied or outside the field. Existing army kept.') end
     if type(self.api.removeTestFieldUnit)~='function' then return refused('Safe placement requires the experimental editor API. Existing army kept; Export Diagnostics for details.') end
-    if template and template.baseline and type(self.api.setTestFieldSpells)~='function' then return refused('Copying saved caster configuration requires the experimental editor API. Existing army kept.') end
+    if template and template.baseline and type(self.api.setTestFieldSpells)~='function' and not Loadout.available(self.api) then return refused('Copying saved caster configuration requires the experimental editor API. Existing army kept.') end
     local candidate=M.copy(s); local m=self.catalog.byId[monster]
     if not m or (team~=1 and team~=2) then return refused('Invalid unit or team. Existing army kept.') end
     if s.allowMultipleUnique and not self:multipleUniqueAvailable() then return refused('Multiple unique units require the updated experimental extender. Existing army kept.') end

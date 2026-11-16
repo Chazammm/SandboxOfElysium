@@ -35,7 +35,7 @@ local function fixture()
         battleScreenToCell=function()return 6,6 end,battleUnitAt=function()return -1 end,
         ui={nameBox=function()state.prompts=state.prompts+1;return 'popup' end,
             drawRect=function()end,drawText=function()end,
-            drawMonsterIconFit=function(x,y,w,h,id)state.icons[#state.icons+1]={x=x,y=y,w=w,h=h,id=id};return true end}}
+            drawMonsterSprite=function(x,y,w,h,id)state.icons[#state.icons+1]={x=x,y=y,w=w,h=h,id=id};return true end}}
     local u=U.new(api);u.phase='prepare';u.scenario=M.new();u.runtime={open=true,width=30,live={},objects={}}
     u.catalog={monsters={{id=1,name='Äther',categories={}},{id=2,name='Apocalyptic Rider',categories={}},{id=3,name='Zebra',categories={}}},byId={}}
     for _,m in ipairs(u.catalog.monsters)do u.catalog.byId[m.id]=m end

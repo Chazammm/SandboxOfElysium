@@ -141,7 +141,7 @@ function P.run(api,options)
         local painting,done=false,false
         api.wrap('BATTLE_DRAW',function(next,...)
             local result=next(...);if painting then
-                for i,id in ipairs({0,153})do local ok,rect=api.ui.drawItemIconFit(40+i*40,100,32,28,id)
+                for i,id in ipairs({0,153})do local ok,rect=api.ui.drawItemSprite(40+i*40,100,32,28,id)
                     assert(ok and rect.width>0 and rect.height>0 and rect.x>=40+i*40 and rect.y>=100 and rect.x+rect.width<=72+i*40+0.001 and rect.y+rect.height<=128.001)
                     out['icon'..id]={source_width=rect.sourceWidth,source_height=rect.sourceHeight,width=rect.width,height=rect.height,sprite=rect.sprite}
                 end

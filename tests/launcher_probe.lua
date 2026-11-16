@@ -5,7 +5,7 @@ local nonce=request.launch.nonce
 if not nonce:match('^[a-f0-9]+$') or #nonce~=32 then return end
 local status={nonce=nonce,sandbox='0',terrain_query='absent',plain='0',forest='0',editor='0',integrity='0',lifecycle='0',multiple_unique='0',inline_input='0',fitted_icons='0',empty_editor='0',final_snapshot_api='0'}
 status.configuration='0'
-if type(coe5.setTestFieldSpells)=='function' and type(coe5.removeTestFieldUnit)=='function' and type(coe5.battleScreenToCell)=='function' then status.editor='1' end
+if type(coe5.setTestFieldConfiguration)=='function' and type(coe5.removeTestFieldUnit)=='function' and type(coe5.battleScreenToCell)=='function' then status.editor='1' end
 if type(coe5.testFieldEditorCapabilities)=='function' then
     local ok,caps=pcall(coe5.testFieldEditorCapabilities)
     if ok and type(caps)=='table' and caps.uniqueGuard==1 and caps.state==1 and caps.pointerButtons==1 then status.integrity='1' end
@@ -17,7 +17,7 @@ if type(coe5.testFieldEditorCapabilities)=='function' then
     end
 end
 if type(coe5.setTestFieldTextFocus)=='function' and type(coe5.takeTestFieldTextEvents)=='function' then status.inline_input='1' end
-if type(coe5.ui.drawMonsterIconFit)=='function' then status.fitted_icons='1' end
+if type(coe5.ui.drawMonsterSprite)=='function' then status.fitted_icons='1' end
 if type(coe5.testFieldFinalState)=='function' and type(coe5.inspectTestFieldFinalUnit)=='function' then status.final_snapshot_api='1' end
 for i=0,coe5.get('modLastIndex') do
     if coe5.get('modName',i)=='SandboxOfElysium' and coe5.get('modEnabled',i)~=0 then status.sandbox='1' end
