@@ -1,5 +1,7 @@
 # Verification results — 2026-11-13
 
+**2026-11-16 editor.10:** [Native individual naming, limits, exact persistence and separate API evidence](TEST-NATIVE-NAMES-2026-11-16.md). Current naming tests and visible observations are distinct from all historical reports below.
+
 **2026-11-15/16 current upstream port:** [Five CoE5SE 3.4.4 source contributions and combined verification](TEST-API-CONTRIBUTIONS-2026-11-15.md). Final combined native runs pass 21 standard, 14 fixture and four placement groups (including repeats); visible evidence and final-revision limits are distinguished. Existing product Lua is unchanged. Earlier results below are not automatically later-build acceptance.
 
 **2026-11-15 editor.8:** [Explicit cursed removal using the actual Crystal Heart diagnostic](TEST-CURSED-2026-11-15.md). Current local report: live identity/spell preservation, exact supported saved configuration, native bonus refusal and explicit injury-persistence limitation. Earlier reports below retain their historical scope.

@@ -51,6 +51,10 @@ function C.read(api)
             if M.terrainNames[id] then c.testFieldTerrains[id]=true end
         end end
     end
+    if type(api.testFieldEnvironmentInfo)=='function'then
+        local ok,info=pcall(api.testFieldEnvironmentInfo)
+        if ok and type(info)=='table'then c.environment=info end
+    end
     local slots={}
     for i=0,api.get('modLastIndex') do
         if api.get('modEnabled',i)~=0 then c.mods[#c.mods+1]=api.get('modName',i) end
@@ -59,6 +63,12 @@ function C.read(api)
         local name=api.get('monsterName',i)
         if name and name~='' then
             local m={id=i,name=name,sprite=api.get('monsterSprite',i),categories={}}
+            local known,definer=pcall(api.get,'monsterMod',i)
+            if known and type(definer)=='string'and definer~=''then
+                m.definitionMod=definer;m.originScope='defined by mod';m.categories.modded=true
+            else
+                m.originScope='no mod definition reported; modification origin unknown';m.categories.unknown_origin=true
+            end
             for _,word in ipairs({'undead','demonic','animal','human','flying'}) do
                 if api.get('monster',i,word) then m.categories[word]=true end
             end

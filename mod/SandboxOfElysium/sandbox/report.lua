@@ -1,5 +1,10 @@
 local M=require('sandbox.model')
 local Report={};Report.__index=Report
+-- INI rejects outer whitespace. Brackets in the readable export are explicit;
+-- hexadecimal fields retain the exact UTF-8 name, including any outer spaces.
+local function iniName(value)return value:match('^%s')or value:match('%s$')end
+local function readableName(value)return iniName(value)and('['..value..']')or value end
+local function nameHex(value)return(value:gsub('.',function(c)return('%02x'):format(c:byte())end))end
 function Report.new(api)
     local self=setmetatable({api=api,active=false,stack={}},Report)
     self.hooks={}
@@ -73,7 +78,7 @@ function Report:finish(s,runtime)
         if finalAnchor then out.summary.captured_original_position_count=out.summary.captured_original_position_count+1 end
         if x and y then out.summary.final_position_count=out.summary.final_position_count+1 end
         if aftermath then out.summary.aftermath_position_count=out.summary.aftermath_position_count+1 end
-        out['unit'..u.id]={name=u.name,sandbox_label=u.label or '',label_scope='sandbox_display_label; native card/log unchanged',monster=u.monster,team=u.team,native=unit,hp=hp or 'unavailable',
+        out['unit'..u.id]={name=u.name,display_name=readableName(M.displayName(u)),display_name_hex=nameHex(M.displayName(u)),native_name=readableName(u.nativeName or ''),native_name_hex=nameHex(u.nativeName or ''),native_name_recorded=u.nativeName~=nil and 1 or 0,native_name_scope='native_individual_v1; pre-battle setup, not a reconstructed combat log',sandbox_label=u.label or '',label_scope='sandbox_display_label; separate from native personal name',monster=u.monster,team=u.team,native=unit,hp=hp or 'unavailable',
             alive=alive and 1 or 0,final_owner=self.api.get('unitOwner',unit) or 'unavailable',
             x=x or 'unavailable',y=y or 'unavailable',
             aftermath_x=aftermath and aftermath.x or 'unavailable',aftermath_y=aftermath and aftermath.y or 'unavailable',

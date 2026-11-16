@@ -1,0 +1,18 @@
+icon "banner.tga"
+description "Explicit isolated release-next QA only. Requires separately installed CrabCult; never enabled by a normal Sandbox launch."
+
+newmonster "Sandbox Normal Starting Kit QA"
+copystats "Spearman"
+startitem "Amulet of Anti Magic"
+
+newmonster "Sandbox Cursed Starting Kit QA"
+copystats "Spearman"
+startitem "Abyss Fragment"
+
+newmonster "Sandbox Implanted Starting Kit QA"
+copystats "Arcane Frost Dragon"
+startitem "Crystal Heart"
+
+newmonster "Sandbox Caster Starting Kit QA"
+copystats "Druid's Apprentice"
+startitem "Abyss Fragment"

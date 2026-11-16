@@ -1,10 +1,14 @@
-param([switch]$CheckOnly, [switch]$NoWait, [switch]$EditingProbe, [switch]$PlacementProbe, [switch]$InterfaceProbe, [switch]$InspectorProbe, [ValidatePattern('^[a-z0-9_,]*$')][string]$InspectorCases='', [switch]$BattlefieldProbe, [switch]$TerrainCandidates, [switch]$CrabCult, [ValidatePattern('^[a-z0-9_,]*$')][string]$BattlefieldCases='', [ValidateSet('baseline','regression')][string]$ProbeMode='regression', [ValidateRange(800,3840)][int]$WindowWidth=1200, [ValidateRange(600,2160)][int]$WindowHeight=900)
+param([string]$ExtenderSource='', [switch]$CheckOnly, [switch]$NoWait, [switch]$EditingProbe, [switch]$PlacementProbe, [switch]$InterfaceProbe, [switch]$InspectorProbe, [ValidatePattern('^[a-z0-9_,]*$')][string]$InspectorCases='', [switch]$BattlefieldProbe, [switch]$TerrainCandidates, [switch]$CrabCult, [ValidatePattern('^[a-z0-9_,]*$')][string]$BattlefieldCases='', [ValidateSet('baseline','regression')][string]$ProbeMode='regression', [ValidateRange(800,3840)][int]$WindowWidth=1200, [ValidateRange(600,2160)][int]$WindowHeight=900)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version 2
 $root=[IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
 $lab=Join-Path $root 'private/terrain-lab'
 $profile=Join-Path $lab 'profile'
-$extender=Join-Path (Split-Path $root -Parent) 'SandboxOfElysium-ExtenderLab-current'
+$extender=Join-Path (Split-Path $root -Parent) 'SandboxOfElysium-ExtenderLab-next'
+if($ExtenderSource){
+    if([IO.Path]::IsPathRooted($ExtenderSource)){$extender=[IO.Path]::GetFullPath($ExtenderSource)}
+    else{$extender=[IO.Path]::GetFullPath((Join-Path $root $ExtenderSource))}
+}
 $payload=@('glu32.dll','coe5se_loader.dll','coe5se.c5plugin.dll','CoE5SE.c5m','CoE5SE.c5se','banner.tga')
 $gameProcess=$null; $launchLock=$null; $verified=$false
 function FullPath([string]$Path) { [IO.Path]::GetFullPath($Path).TrimEnd([char[]]'\/') }

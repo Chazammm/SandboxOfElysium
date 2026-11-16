@@ -10,6 +10,7 @@ function Probe.run(api,options)
         requested_fights_per_terrain=cycles,campaign_equivalence='Seasons, climate gradients, neighbors, enchantments and faction/world effects are not reproduced or claimed'}}
     local output=options.output or 'terrain-expansion-results'
     local rows={{id=12,name='Mountains',ground=0,tag='mountain'},{id=107,name='Swamp',ground=5,tag='swamp'},{id=117,name='Desert',ground=4,tag='desert'}}
+    if catalog.testFieldTerrains[115]then rows[#rows+1]={id=115,name='Jungle',ground=2,requiredFlag=0x800000000000}end
     if options.includeBaseline then table.insert(rows,1,{id=2,name='Forest',ground=0,tag='forest'});table.insert(rows,1,{id=0,name='Plain',ground=0})end
     local selected={};for id in tostring(options.only or ''):gmatch('[^,%s]+')do selected[tonumber(id) or id]=true end
     local activeRuntime,fighting,movements=nil,false,0
@@ -87,6 +88,7 @@ function Probe.run(api,options)
             end
             assert(identity.batmap==0,'non-general native battle map is unsupported')
             assert(identity.water==0 and identity.ug==0 and identity.cave==0 and identity.walls==0 and identity.citadel==0,'water/fort/cave/other-plane terrain refused')
+            if row.requiredFlag then assert((api.get('terrainFlags',row.id)&row.requiredFlag)~=0,'required observed terrain flag missing')end
             if row.tag then assert(identity[row.tag]==1,'required native land identity flag missing')end
             result[label..'_identity']=identity
             assert(catalog.testFieldTerrains[row.id],'candidate build did not advertise this exact native terrain')

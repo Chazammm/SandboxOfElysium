@@ -50,8 +50,29 @@ function D:snapshot(s,runtime)
         limits='24 model rows; 48 native rows; 256 nonempty raw grid cells; capped export, not complete engine state'},units={},nativeUnits={},cells={}}
     for i=1,math.min(24,#units) do
         local u=units[i];local live=runtime.live[u.id]
-        local row={id=u.id,model_id=u.id,monster=u.monster,name=u.name,sandbox_label=u.label or '',label_scope='sandbox_display_label; native name unchanged',team=u.team,saved_x=u.x,saved_y=u.y,live=live or 'none',native_id=live or 'none',
+        local row={id=u.id,model_id=u.id,monster=u.monster,name=u.name,sandbox_label=u.label or '',label_scope='legacy sandbox-only label; separate from native personal name',display_name_hex=M.displayName(u):gsub('.',function(c)return('%02x'):format(c:byte())end),saved_native_name_hex=u.nativeName and u.nativeName:gsub('.',function(c)return('%02x'):format(c:byte())end)or 'not configured',native_name_scope='native_individual_v1; hex preserves whitespace and UTF-8',team=u.team,saved_x=u.x,saved_y=u.y,live=live or 'none',native_id=live or 'none',
             saved_known=table.concat(u.baseline and u.baseline.known or {},'|'),saved_memorized=table.concat(u.spells or {},'|'),saved_items=table.concat(u.items or {},'|')}
+        row.actor_state_scope='bounded supported subset; not full native unit state'
+        if u.condition then for _,key in ipairs({'hp','xp','kills','injuryFlags','maxHp','width','height'})do row['saved_actor_'..key]=u.condition[key]end end
+        if live and type(self.api.testFieldActorState)=='function'then
+            local ok,state,why=pcall(self.api.testFieldActorState,live)
+            row.actor_state_result=ok and type(state)=='table'and 'bounded snapshot'or tostring(why or state)
+            if ok and type(state)=='table'then
+                row.actor_state_complete=state.complete and 1 or 0;row.full_native_state=state.fullState and 1 or 0
+                for _,key in ipairs({'hp','xp','kills','injuryFlags','maxHp','width','height'})do row['actual_actor_'..key]=state[key]end
+            end
+        end
+        if live and type(self.api.testFieldUnitName)=='function'then
+            local ok,state,why=pcall(self.api.testFieldUnitName,live)
+            row.native_name_result=ok and type(state)=='table'and 'observed'or tostring(why or state)
+            if ok and type(state)=='table'then
+                row.native_name_hex=state.name:gsub('.',function(c)return('%02x'):format(c:byte())end)
+                row.native_name_shown_hex=state.shown:gsub('.',function(c)return('%02x'):format(c:byte())end)
+                row.native_name_custom=state.custom and 1 or 0;row.native_name_storage=state.storage
+                row.native_name_generation=state.generation;row.native_name_commander=state.commander
+                row.native_name_formatter_reads=state.formatterReads;row.native_name_combat_reads=state.combatReads
+            end
+        end
         if live then
             row.hp=get(self.api,'unitHp',live);row.x=get(self.api,'unitBattleX',live);row.y=get(self.api,'unitBattleY',live)
             row.world_x=get(self.api,'unitX',live);row.world_y=get(self.api,'unitY',live)

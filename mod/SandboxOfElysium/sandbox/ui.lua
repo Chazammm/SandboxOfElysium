@@ -8,9 +8,11 @@ local FinalView=require('sandbox.final_view')
 local Loadout=require('sandbox.loadout')
 local LoadoutUI=require('sandbox.loadout_ui')
 local ConfigWindow=require('sandbox.config_window')
+local Battlefields=require('sandbox.battlefields')
 local U={};U.__index=U
 local kinds={'Single','Horizontal Row','Vertical Row','Square'}
-local categories={'All','human','animal','undead','demonic','flying','ranged'}
+local categories={'All','human','animal','undead','demonic','flying','ranged','modded','unknown_origin'}
+local categoryLabels={modded='Modded Units',unknown_origin='No mod definition'}
 local function contains(t,v) for _,x in ipairs(t) do if x==v then return true end end;return false end
 function U.new(api)
     local self=setmetatable({api=api,scenario=M.new(),team=1,formation=1,n=1,search='',category=1,page=1,
@@ -123,7 +125,9 @@ function U:setupRows()
         {locked and 0 or 11,'Battlefield: '..(M.terrainNames[s.terrain] or 'Unknown')..change},
         {locked and 0 or 1,'Team A: '..count(1)..' | color: '..M.colors[s.colors[1]][1]..change},
         {locked and 0 or 2,'Team B: '..count(2)..' | color: '..M.colors[s.colors[2]][1]..change},
-        {locked and 0 or 15,'Multiple unique units: '..(s.allowMultipleUnique and 'On' or 'Off')..(self:multipleUniqueAvailable() and '' or ' (API unavailable)')}}
+        {locked and 0 or 15,'Multiple unique units: '..(s.allowMultipleUnique and 'On' or 'Off')..(self:multipleUniqueAvailable() and '' or ' (API unavailable)')},
+        {locked and 0 or 17,'Field size: '..Battlefields.sizeLabel(s)..change},
+        {locked and 0 or 18,'New units: '..(s.startingItems==false and 'omit starting equipment' or 'normal starting equipment')..change}}
     if self.message and self.message~='' then rows[#rows+1]={0,self.message}end
     if self.runtime.blocked then
         rows[#rows+1]={0,'Editing locked. Saved setup preserved; export diagnostics before recovery.'}
@@ -153,15 +157,11 @@ function U:setup()
         local rows=self:setupRows()
         local id=self:menu('Sandbox - battlefield',rows)
         if id==999 then return end
-        if id==11 then
-            local index=0;for i,id in ipairs(available) do if id==s.terrain then index=i;break end end
-            local nextTerrain=available[index%math.max(1,#available)+1]
-            local t=nextTerrain and self.catalog.terrainById[nextTerrain]
-            if not nextTerrain then self:notice('No verified terrain capability is available. Current setup kept.')
-            elseif t and t.name==M.terrainNames[nextTerrain] then
-                s.terrain=nextTerrain;self.message='Terrain can block saved cells. Use native deployment to reposition units.'
-                self.diag:record('terrain',{terrain=nextTerrain})
-            else self:notice('Required vanilla terrain is missing or changed.') end
+        if id==11 then self:terrainPicker()
+        elseif id==17 then self:sizePicker()
+        elseif id==18 then
+            s.startingItems=s.startingItems==false;self.message='Starting equipment policy affects new placements only. Existing units, copies and restored configurations stay unchanged.'
+            self.diag:record('starting_items',{enabled=s.startingItems and 1 or 0,scope='new units only'})
         elseif id==1 or id==2 then s.colors[id]=s.colors[id]%7+1
         elseif id==15 then self:toggleMultipleUnique()
         elseif id==3 then
@@ -170,7 +170,7 @@ function U:setup()
             self:prepare(true)
         elseif id==4 then self:load()
         elseif id==5 then self:terrainBrowser()
-        elseif id==6 then self:notice('Neutral land battlefields, no fort; automatic field size. '..(Loadout.available(self.api) and 'Equipment and existing base schools up to level 3 are editable. New schools and eye/heart implants are unavailable. ' or 'Equipment and base-school editing need the newer experimental Extender. ')..'Attack artwork, content origin and complete battle telemetry remain unavailable.')
+        elseif id==6 then self:notice('Verified neutral land fields only; other template contexts remain unverified. Size choices require the release-next API and are minimums. '..(Loadout.available(self.api) and 'Equipment and existing base schools up to level 3 are editable. New schools and eye/heart implants are unavailable. ' or 'Equipment and base-school editing need the newer experimental Extender. ')..'Modded Units means a mod-defined unit; modified vanilla units are not identified by that getter. Health/XP/injury-bit restoration needs the release-next API and remains a subset: effects, poison/bleeding and opaque native state are not saved. Complete battle telemetry is unavailable.')
         elseif id==7 then self:smallCheck()
         elseif id==9 and self.snapshot then self.scenario=M.copy(self.snapshot);self.message='Pre-battle setup selected; native restoration checked on Prepare'
         elseif id==10 then self:save()
@@ -192,6 +192,68 @@ function U:smallCheck()
     if ok then if self:fight() then self:postBattle() end;self:setSearchFocus(false);closed,closeWhy=self.runtime:close() else self:notice(why) end
     self.scenario=old;self.snapshot=oldSnapshot;self.phase='menu'
     if closed==false then self.exitToMain=nil;self:notice('Native cleanup was not verified: '..tostring(closeWhy)..'. Original setup and report kept. Export Diagnostics, then restart the isolated game.') end
+end
+function U:terrainPicker()
+    while true do
+        local rows={{0,'Only verified neutral land contexts are playable. Template files and world terrains are separate.'},{section='Verified neutral fields'}}
+        local available={}
+        for id in pairs(self.catalog.testFieldTerrains)do available[#available+1]=id end
+        table.sort(available,function(a,b)return M.terrainNames[a]<M.terrainNames[b]end)
+        if #available==0 then rows[#rows+1]={0,'No verified terrain API is available; the current selection is kept.'}end
+        for i,id in ipairs(available)do rows[#rows+1]={100+i,(self.scenario.terrain==id and '[selected] 'or'')..M.terrainNames[id]}end
+        rows[#rows+1]={section='Native catalogue'}
+        rows[#rows+1]={1,'Installed battlefield templates (availability and limits)'}
+        rows[#rows+1]={2,'Loaded world-terrain data (read only)'}
+        rows[#rows+1]={999,'Back'}
+        local id=self:menu('Battlefield presets',rows)
+        if id==999 then return
+        elseif id==1 then self:templateCatalogue()
+        elseif id==2 then self:terrainBrowser()
+        elseif available[id-100]then
+            self.scenario.terrain=available[id-100]
+            self.message='Terrain changed. Keep positions verifies exact cells; native deployment explicitly repositions units.'
+            self.diag:record('terrain',{terrain=self.scenario.terrain,scope='verified neutral field'});return
+        end
+    end
+end
+function U:templateCatalogue()
+    local templates=self.catalog.environment and self.catalog.environment.templates
+    if type(templates)~='table'then self:notice('The installed-template catalogue needs the separate release-next environment API. No additional preset is advertised.');return end
+    local page=1
+    while true do
+        local rows={{0,#templates..' stock template names examined; a file is not proof of a playable native context.'},
+            {0,'Sieges/forts, water, special planes and variations need verified native context and remain unavailable.'},
+            {section='Templates: page '..page..' / '..math.max(1,math.ceil(#templates/6))}}
+        for i=(page-1)*6+1,math.min(page*6,#templates)do local row=templates[i]
+            rows[#rows+1]={0,row.name..' | '..(row.installed and ('stored canvas '..tostring(row.storedWidth)..' x '..tostring(row.storedHeight))or'not installed')}
+            rows[#rows+1]={0,'Unavailable: native gameplay context is not verified.'}
+        end
+        rows[#rows+1]={1,'Previous'};rows[#rows+1]={2,'Next'};rows[#rows+1]={999,'Back'}
+        local id=self:menu('Native template catalogue (read only)',rows)
+        if id==999 then return elseif id==1 then page=math.max(1,page-1)elseif id==2 then page=math.min(math.max(1,math.ceil(#templates/6)),page+1)end
+    end
+end
+function U:sizePicker()
+    while true do
+        local rows={{0,'Sandbox minimums, not native preset names. All fields have 20 rows.'},
+            {0,'Native army/map requirements can enlarge a minimum; existing saved cells are never silently moved.'},
+            {section='Field size'}}
+        for i,row in ipairs(Battlefields.sizes)do
+            local label=row.name..(row.columns and (' | minimum '..row.columns..' x 20')or'')
+            rows[#rows+1]={i,label..(Battlefields.sizeAvailable(self.catalog,row)and''or' (API unavailable)')}
+        end
+        rows[#rows+1]={999,'Back'}
+        local id=self:menu('Battlefield size',rows)
+        if id==999 then return end
+        local row=Battlefields.sizes[id]
+        if row then
+            local ok,why=Battlefields.selectSize(self.catalog,self.scenario,row)
+            if not ok then self:notice(why)else
+                self.message='Size selected. Open checks exact positions; native deployment explicitly repositions units.'
+                self.diag:record('field_size',{minimum_width=row.columns or 0,policy='native automatic expansion retained'});return
+            end
+        end
+    end
 end
 function U:terrainBrowser()
     local page=1
@@ -232,7 +294,7 @@ function U:searchEvents()
     if type(packet)~='table' then self:setSearchFocus(false);self.message='Inline input state unavailable; search focus released.';return true end
     local changed=false;local focusTarget=self.textTarget
     for _,event in ipairs(packet.events or {}) do
-        if (self.textTarget=='label' or self.textTarget=='spells') and (event.type=='text' or event.type=='backspace' or event.type=='clear') then
+        if (self.textTarget=='label' or self.textTarget=='spells' or self.textTarget=='native_name') and (event.type=='text' or event.type=='backspace' or event.type=='clear') then
             ConfigWindow.text(self,event)
         elseif event.type=='text' and type(event.text)=='string' then
             local text=event.text:gsub('[%z\1-\31\127]','')
@@ -531,7 +593,15 @@ function U:draw()
         ui.drawText(12,44,10,status..' after aftermath, before cleanup; effects not captured. Right-click survivor: Inspect.',1,0.9,0.7,1)
         if self.finalContext then
             local x,y=math.max(5,math.min(W-180,self.finalContext.px)),math.max(145,math.min(H-45,self.finalContext.py))
-            ui.drawRect(x-5,y-36,170,37,0.02,0.025,0.03,1);self:button('finalinspect','Inspect current native unit',x,y-30,160,26)
+            local entry=self.finalContext.entry;local name
+            if type(api.testFieldUnitName)=='function'then
+                local ok,state=pcall(api.testFieldUnitName,entry.native)
+                if ok and type(state)=='table'and state.generation==entry.row.generation then name=state.shown end
+            end
+            local width=math.min(W-20,math.max(250,name and #name*8+16 or 250));x=math.max(5,math.min(W-width-5,x))
+            ui.drawRect(x-5,y-36,width+5,59,0.02,0.025,0.03,1)
+            ui.drawText(x+4,y+5,11,name or 'Native name unavailable after cleanup',1,0.94,0.73,1)
+            self:button('finalinspect','Inspect current native unit',x,y-30,width,26)
         end
         return
     end
@@ -564,7 +634,7 @@ function U:draw()
     self.searchRect={x=p+8,y=285,w=234,h=27}
     self:button('search',searchLabel..(unitSearchFocused and ' |' or ''),p+8,285,234,27,unitSearchFocused and {0.16,0.31,0.43} or nil)
     self:button('searchclear','Clear',p+246,285,46,27)
-    local filterText='Filter: '..categories[self.category]..' | '..#self.filtered..' results'
+    local filterText='Filter: '..(categoryLabels[categories[self.category]]or categories[self.category])..' | '..#self.filtered..' results'
     if categories[self.category]=='ranged' and (self.catalog.rangedUnknown or 0)>0 then filterText='Ranged unavailable/partial: update Extender' end
     self:button('filter',filterText,p+8,255,284,24)
     for row=1,5 do local index=(self.page-1)*5+row;local item=self.filtered[index];local y=251-row*36
@@ -582,10 +652,18 @@ function U:draw()
     self:button('prev','<',p+8,42,40,25);self:button('next','>',p+252,42,40,25)
     ui.drawText(p+65,50,11,self.page..' / '..math.max(1,math.ceil(#self.filtered/5))..(type(ui.drawMonsterIconFit)=='function' and '' or ' | icon API missing'),0.8,0.8,0.8,1)
     end
+    local hover=gx and self:unitAt(gx,gy)
+    if hover and not self.context and not self.editWindow then
+        local name=M.displayName(hover);local width=math.min(p-20,math.max(190,math.min(48,utf8 and utf8.len(name)or #name)*12+18))
+        local x=math.max(5,math.min(p-width-5,self.api.get('uiPointerX')+14));local y=math.max(42,math.min(H-110,self.api.get('uiPointerY')+14))
+        ui.drawRect(x,y,width,48,0.025,0.04,0.05,0.97);ui.drawText(x+8,y+29,12,name,1,0.94,0.73,1)
+        ui.drawText(x+8,y+10,10,hover.name..' | '..(hover.team==1 and'A'or'B')..' #'..hover.id,0.82,0.87,0.9,1)
+    end
     if self.context then
-        local x,y=math.max(5,math.min(p-140,self.context.px)),math.max(194,math.min(H-45,self.context.py))
-        ui.drawRect(x-5,y-152,138,152,0.02,0.025,0.03,1)
-        for i,label in ipairs({'Inspect','Edit','Move','Copy','Delete'}) do self:button('context:'..label,label,x,y-i*28,128,25) end
+        local name=M.displayName(self.context.unit);local width=math.min(p-14,math.max(180,math.min(48,utf8 and utf8.len(name)or #name)*12+18))
+        local x,y=math.max(5,math.min(p-width-5,self.context.px)),math.max(194,math.min(H-45,self.context.py))
+        ui.drawRect(x-3,y-153,width+6,186,0.02,0.025,0.03,1);ui.drawText(x+6,y+12,12,name,1,0.94,0.73,1)
+        for i,label in ipairs({'Inspect','Edit','Move','Copy','Delete'})do self:button('context:'..label,label,x,y-i*28,width,25)end
     end
     ConfigWindow.draw(self)
 end
@@ -713,10 +791,21 @@ function U:inspectFinal()
     self:notice('Native final-unit Inspect refused: '..tostring(detail));return false
 end
 function U:save()
-    local name=self:prompt('Save scenario','File name (without .ini):')
+    local migrate=self.scenario.legacyState or self.scenario.migrationRequired
+    local name=self:prompt(migrate and 'Save migrated copy'or'Save scenario',migrate and 'Unused name for schema 4 copy; original is preserved:'or'File name (without .ini):')
     if name then
         if name:lower()=='launcher-context' or name:lower():find('^diagnostics%-') then self:notice('This name is reserved for diagnostics. Choose another scenario name.');return end
+        if migrate then
+            for _,existing in ipairs(self.api.listIni())do
+                if existing:gsub('%.ini$',''):lower()==name:gsub('%.ini$',''):lower()then self:notice('Migration writes a new copy. Choose an unused name; existing scenarios are preserved.');return end
+            end
+        end
         local ok=self.api.writeIni(name,M.encode(self.scenario,self.catalog.mods))
+        if ok then
+            local verified,why=M.decode(self.api.readIni(name),self.catalog,self.catalog.mods)
+            if not verified then ok=false;self.diag:record('save_readback',{accepted=0,reason=tostring(why)})
+            else self.scenario.legacyState=false;self.scenario.sourceSchema=4;self.scenario.migrationRequired=false end
+        end
         self.message=ok and 'Scenario saved: '..name or 'Save refused: invalid file name, value or quota'
         self.diag:record('save',{accepted=ok and 1 or 0,units=#self.scenario.units,terrain=self.scenario.terrain})
         if not ok then local snapshot=self.runtime:snapshot(self.scenario);self.diag:failure('save',self.message,{},snapshot,snapshot,'unchanged') end
@@ -748,6 +837,11 @@ function U:load()
     end
     ConfigWindow.close(self);self.selectedItem=nil
     self.scenario=candidate;self.context=nil;self.moving=nil;self.copyTemplate=nil;self.message='Scenario content validated; native positions checked on Prepare'
+    if candidate.migrationRequired and not candidate.legacyState then self.message='Older setup loaded; existing labels remain Sandbox-only. Native personal names were not recorded. Save as a new schema 4 copy.';self:notice(self.message)end
+    if candidate.legacyState or candidate.partialActorState then
+        self.message='Recorded configuration loaded. Health/injury state was not recorded for every actor; native defaults remain for those fields. Save migration to a new name.'
+        self:notice(self.message)
+    end
     self.diag:record('load',{units=#candidate.units,terrain=candidate.terrain})
 end
 function U:edit(u)
@@ -806,11 +900,14 @@ function U:results()
     self.inNativeMenu=true
     local winner=r.summary.winner==0 and 'Team A' or r.summary.winner==24 and 'Team B' or 'None / unavailable'
     local page=1;local types={};for _,row in pairs(r.types) do types[#types+1]=row end
+    for _,u in ipairs(self.report.scenario and self.report.scenario.units or{})do if u.nativeName and u.nativeName~=''then
+        local actor=r['unit'..u.id];if actor then types[#types+1]={team=u.team,name=u.nativeName,modelId=u.id,individual=true,survivors=actor.alive,losses=actor.alive==1 and 0 or 1}end
+    end end
     table.sort(types,function(a,b) return a.team==b.team and a.name<b.name or a.team<b.team end)
     while true do
         local rows={{0,'Winner: '..winner..' | final round '..r.summary.final_round..' | elapsed wall '..math.floor(r.summary.elapsed_wall_ms/1000)..' s'},
             {0,('A: %d start / %d lost / %d survive; B: %d / %d / %d'):format(r.teamA.start,r.teamA.losses,r.teamA.survivors,r.teamB.start,r.teamB.losses,r.teamB.survivors)}}
-        for i=(page-1)*5+1,math.min(page*5,#types) do local t=types[i];rows[#rows+1]={0,('Team %d %s: %d lost / %d survive'):format(t.team,t.name,t.losses,t.survivors)} end
+        for i=(page-1)*5+1,math.min(page*5,#types) do local t=types[i];rows[#rows+1]={0,t.individual and ('Individual %s #%d: %s | %s'):format(t.team==1 and'A'or'B',t.modelId,t.name,t.survivors==1 and'survived'or'lost')or('Team %d %s: %d lost / %d survive'):format(t.team,t.name,t.losses,t.survivors)} end
         rows[#rows+1]={0,'Damage attribution partial; complete cast log unavailable. Export includes native kills.'}
         rows[#rows+1]={0,r.summary.final_snapshot_source and ('Final view: '..r.summary.final_snapshot_source..'; units/cells complete: '..tostring(r.summary.final_snapshot_complete)..'; effects excluded.') or 'Final capture unavailable; aftermath observations alone are partial.'}
         rows[#rows+1]={0,'The battle result is read only. Returning restores saved positions, spells and items.'}

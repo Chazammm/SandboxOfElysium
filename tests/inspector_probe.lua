@@ -144,13 +144,13 @@ else
         local chosen=testCopy();local repaired,scene,details=r:repairSpellSelection(chosen);assert(repaired,tostring(scene))
         assert(details and details.name and api.readIni(details.name).scenario,'verified repair was not saved separately')
         assert(details.name~='replay' and equal(s,original) and equal(r.originalSpellRecovery,s),'original recovery provenance changed')
-        local legacy=M.copy(scene);for _,actor in ipairs(legacy.units)do actor.equipment=nil;actor.schools=nil end
+        local legacy=M.copy(scene);for _,actor in ipairs(legacy.units)do actor.equipment=nil;actor.schools=nil;actor.condition=nil end
         assert(equal(M.encode(legacy,c.mods),M.encode(chosen,c.mods)),'repair silently changed chosen legacy configuration')
-        assert(M.encode(scene,c.mods).scenario.schema==2,'verified native positions/base schools were not captured')
+        assert(M.encode(scene,c.mods).scenario.schema==4,'verified native positions/base schools were not captured')
         checked(r,scene);detailedSpell('repaired_unit4',r,scene.units[4]);detailedSpell('repaired_unit6',r,scene.units[6])
         assert(r.live[scene.units[4].id]~=r.live[scene.units[6].id],'independent God Emperors alias')
         local saved,loadWhy=M.decode(api.readIni(details.name),c,c.mods);assert(saved,loadWhy)
-        assert(equal(M.encode(saved,c.mods),M.encode(scene,c.mods)),'saved repaired copy differs from verified schema-2 configuration')
+        assert(equal(M.encode(saved,c.mods),M.encode(scene,c.mods)),'saved repaired copy differs from verified schema-4 configuration')
         results.repaired_copy={name=details.name,path=details.path or 'unknown',removed_unit4='268,266',removed_unit6='268,267',scope='EXPLICIT TEST COPY ONLY; original ten-spell recovery unchanged'}
         local name,path=d:export({fixture='original invalid six units refused; explicit recorded-addition removal in separate test copy'},r:snapshot(scene));assert(name,path)
         results.repair_diagnostic={name=name};save()

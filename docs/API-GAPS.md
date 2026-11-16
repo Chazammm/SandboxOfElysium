@@ -1,5 +1,7 @@
 # SandboxOfElysium: API findings for musical_pianist
 
+**Release-next local development (2026-11-16):** environment/minimum-width and bounded HP/XP/kills/injury-bit APIs are separate from submitted PR #2. Six neutral fields now include Jungle; water/siege/plane contexts, exact scenery and complete native unit/effect serialization remain gaps. [Current scope and API proposal](TEST-RELEASE-NEXT-2026-11-16.md). Earlier entries below retain their historical boundaries.
+
 Current handoff: [CoE5SE PR #2](https://github.com/musical-pianist/coe5se/pull/2) is open against `dev`, with all seven commits signed off after explicit acceptance. See [tests and remaining gaps (2026-11-16)](TEST-SINGLE-PR-2026-11-16.md) and the [submitted description](COE5SE-PR-DRAFT-2026-11-16.md). No modified Extender is bundled. GitHub Actions reports `action_required`; no CI build pass is claimed.
 
 **Previous contribution split, 2026-11-15/16:** the complete editor.8 API inventory has now been compared with freshly fetched official dev `df09497f04a39ff8fb7b0979dedde7dfed120c64` (3.4.4/API14). Five separate source review contributions and a combined test branch cover the current Sandbox contract. See [the preceding report](TEST-API-CONTRIBUTIONS-2026-11-15.md) and its linked capability matrix, exact source/build/native evidence and English PR drafts. Those historical preparation branches remain separate from the mod and unmerged upstream; they were unsigned review material. The signed submission status is recorded above. The older pinned findings below retain their historical scope.
@@ -116,3 +118,8 @@ See [interface/lifecycle tests](TEST-INTERFACE-2026-11-14.md). Original guards r
 capabilities are absent; no generic unit-struct clone or campaign unique-rule change is used.
 
 The original 0.1.0 Sandbox uses public Lua APIs. The later separately built extender patch temporarily initializes and restores native test-field context; it is documented independently and is required for Forest. No new combat rules, fake selectable sizes, inferred mod origins, estimated complete damage/cast totals, fabricated slots or dummy combatants are substituted. The planning grid and partial telemetry retain their stated limits. Remaining gaps require separate validation before the full requested sandbox can be delivered.
+
+
+## Individual names — separate editor.10 experiment,2026-11-16
+
+Rechecked official dev df09497: commanderName and commanderTheName exist; an ordinary actor has no personal-name string/API. The separate ExtNext experiment adds owned-generation testFieldUnitName/setTestFieldUnitName, a native formatter bridge for ordinary names and actual commander-record updates. It is outside submitted PR #2. See [native evidence, contract, limits and tests](TEST-NATIVE-NAMES-2026-11-16.md). Names are scoped to the owned main-menu field, not campaign saves or unit promotion. A63-byte native combat-message row cannot promise complete arbitrary long entries.

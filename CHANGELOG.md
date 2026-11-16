@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased local development — editor.10,2026-11-16
+
+- Add individually scoped native names in the existing Name tab, native Inspect and original combat messages through a separate experimental API. Shared unit templates and submitted PR #2 remain unchanged.
+- Enforce32 Unicode code points/47 UTF-8 bytes, show counters and an explicit too-long error, retain the previous value on refusal and offer clear/explicit legacy-label promotion.
+- Preserve names through Move/Copy/Save/Load/Reset/Rematch; schema4 stores exact UTF-8 as hex, keeps formats1–3 readable and migrates to a new filename. Add bounded name provenance/readback diagnostics and named report entries. Native log lines still have a63-byte whole-line bound; no full campaign naming or serialization claim.
+- See [naming evidence](docs/TEST-NATIVE-NAMES-2026-11-16.md). No modified Extender binary is bundled or published.
+
+## Unreleased local development — editor.9,2026-11-16
+
+- Add a verified-field picker with Jungle and a read-only inventory of59 native templates/356 vanilla terrain records; unsupported water/siege/plane contexts remain explicit.
+- Add tested Sandbox minimum sizes32/50/70/160x20 with native expansion; retain automatic default and exact-cell safety. Fix rollback to use the last verified setup rather than pending menu size/terrain options.
+- Add schema3 model identity persistence and bounded HP/XP/kills/injury-bit restoration through a separate experimental API. Preserve old formats with absent-state notices and migration to a new filename; full native state/scenery remains incomplete.
+- Add new-only starting-equipment omission with normal default, exact spell preservation, cursed-item handling and implant refusal. Copies/restores keep saved equipment.
+- Add Modded Units based on the actual defining-mod getter and a separate no-definition category; verify CrabCult enabled/disabled and a deliberately modified vanilla definition.
+- Point the local BAT at the separate release-next worktree; derive required DLL resource version from upstream's header. Normal game/profile and submitted PR #2 remain unchanged; no push/release/binary bundle.
+- See [current tests and limitations](docs/TEST-RELEASE-NEXT-2026-11-16.md) for offline/native/visible evidence and preserved failed candidates.
+
 ## Documentation and upstream API review — 2026-11-15
 
 - Maintain current documentation, installation instructions, launcher messages and future repository work in English. Earlier detailed reports have English consolidations and links to their preserved source-era originals in Git history.

@@ -2,6 +2,7 @@
 local M=require('sandbox.model')
 local C=require('sandbox.catalog')
 local L=require('sandbox.loadout')
+local Names=require('sandbox.names')
 local W={}
 local tabs={'Items','Magic Schools & Spells','Name'}
 local function inside(r,x,y)return r and x>=r.x and y>=r.y and x<r.x+r.w and y<r.y+r.h end
@@ -19,7 +20,7 @@ end
 function W.bounds(self,w)
     local sw,sh=self.api.get('screenW'),self.api.get('screenH')
     w.w=math.max(math.min(360,sw-20),math.min(w.w or 390,sw-20))
-    w.h=math.max(math.min(300,sh-84),math.min(w.h or 390,sh-84))
+    w.h=math.max(math.min(w.tab==3 and 360 or 300,sh-84),math.min(w.h or 390,sh-84))
     w.x=math.max(10,math.min(w.x or 20,sw-w.w-10));w.y=math.max(42,math.min(w.y or 56,sh-w.h-42))
     return w
 end
@@ -56,7 +57,7 @@ function W.owns(self,x,y)
 end
 function W.focusRect(self)
     local w=self.editWindow
-    return w and (self.textTarget=='label' and w.labelRect or self.textTarget=='spells' and w.spellRect) or self.searchRect
+    return w and (self.textTarget=='native_name' and w.nativeNameRect or self.textTarget=='label' and w.labelRect or self.textTarget=='spells' and w.spellRect) or self.searchRect
 end
 function W.input(self,mouse,freshLeft,x,y)
     local w=self.editWindow
@@ -308,22 +309,46 @@ function W.drawMagic(self,u,state,w)
     if #rows==0 then text(self,x+15,top-143,11,'No matching existing schools. Try All schools.')end
     button(self,'window','magicup','Scroll up',x+12,w.y+42,86,22);button(self,'window','magicdown','Scroll down',x+106,w.y+42,96,22)
 end
+local function wrappedName(self,value,x,y,columns,size,color)
+    local line,at='',0
+    if utf8 then
+        for _,cp in utf8.codes(value)do
+            if at==columns then text(self,x,y,size,line,color);y=y-15;line='';at=0 end
+            line=line..utf8.char(cp);at=at+1
+        end
+    else
+        for i=1,#value do if at==columns then text(self,x,y,size,line,color);y=y-15;line='';at=0 end;line=line..value:sub(i,i);at=at+1 end
+    end
+    if line~=''then text(self,x,y,size,line,color)end
+end
 function W.drawName(self,u,w)
-    local x,top=w.x,w.y+w.h
-    text(self,x+14,top-87,12,'Sandbox display label (individual instance)')
-    text(self,x+14,top-110,10,'Native card and native combat messages keep the game name.')
-    w.labelRect={x=x+14,y=top-151,w=w.w-28,h=29}
-    local focus=self.searchFocused and self.textTarget=='label'
-    button(self,'window','labelsearch',(u.label and trim(u.label,48) or 'Click to type a display label...')..(focus and ' |' or ''),x+14,top-151,w.w-28,29,focus and {0.16,0.31,0.43} or nil)
-    text(self,x+14,top-176,10,'Live update | max 48 Unicode characters | empty restores type label')
-    text(self,x+14,top-198,10,'Type: '..trim(u.name,48)..' | model #'..u.id..' | native #'..w.native)
-    text(self,x+14,top-222,10,'Stored in scenarios and Sandbox reports. Font glyphs depend on CoE5.')
-    button(self,'window','labelclear','Clear display label',x+14,top-264,180,26)
+    local x,top=w.x,w.y+w.h;local value=u.nativeName or '';local supported=Names.available(self.api)
+    text(self,x+14,top-87,12,'Native individual name')
+    text(self,x+14,top-108,10,supported and 'Used by native Inspect and combat messages.'or'Native naming API unavailable; existing labels are preserved.')
+    w.nativeNameRect={x=x+14,y=top-151,w=w.w-28,h=29};w.labelRect=w.nativeNameRect
+    local focus=self.searchFocused and self.textTarget=='native_name'
+    button(self,'window','namesearch','',x+14,top-151,w.w-28,29,focus and{0.16,0.31,0.43}or nil)
+    local shown=(value~=''and value or 'Click to name this unit...')..(focus and' |'or'')
+    -- textWidth is preview-world-only upstream. A conservative one-em bound
+    -- fits the complete bounded name without issuing refused queries per frame.
+    local size=math.min(13,(w.w-40)/math.max(1,utf8 and utf8.len(shown)or #shown))
+    text(self,x+19,top-144,size,shown)
+    local count=utf8 and utf8.len(value)or #value
+    text(self,x+14,top-174,11,('Characters: %d / %d | UTF-8 bytes: %d / %d'):format(count,M.nativeNameCharacters,#value,M.nativeNameBytes))
+    if w.nameError then wrappedName(self,w.nameError,x+14,top-194,math.max(20,math.floor((w.w-28)/6)),10,{1,0.48,0.36})
+    else text(self,x+14,top-194,10,'Native log lines have a fixed limit; long entries can be cut off.')end
+    text(self,x+14,top-237,10,'Type: '..trim(u.name,36)..' | model #'..u.id..' | native #'..w.native)
+    if u.label then
+        text(self,x+14,top-257,10,'Previous Sandbox-only label (not applied automatically):')
+        wrappedName(self,u.label,x+14,top-275,math.max(18,math.floor((w.w-28)/7)),11)
+        button(self,'window','namelegacy','Use previous label',x+14,w.y+43,158,25)
+    end
+    button(self,'window','nameclear','Clear native name',x+w.w-173,w.y+43,159,25)
 end
 function W.text(self,event)
-    local target=self.textTarget;if target~='spells' and target~='label'then return false end
+    local target=self.textTarget;if target~='spells' and target~='label' and target~='native_name'then return false end
     local u=W.target(self);if not u then return true end
-    local w=self.editWindow;local old=target=='label' and (u.label or '') or w.spellSearch;local nextText=old
+    local w=self.editWindow;local old=target=='native_name' and (u.nativeName or '')or target=='label' and (u.label or '') or w.spellSearch;local nextText=old
     if event.type=='text'then
         if type(event.text)~='string'then return true end
         if utf8 then local ok,n=pcall(utf8.len,event.text);if not ok or not n then self.message='Invalid UTF-8 input rejected.';return true end end
@@ -331,7 +356,10 @@ function W.text(self,event)
     elseif event.type=='backspace'then nextText=C.backspace(old)
     elseif event.type=='clear'then nextText=''
     else return false end
-    if target=='label'then
+    if target=='native_name'then
+        local ok,why=self.runtime:setNativeName(u,nextText)
+        w.nameError=not ok and why or nil;self.message=ok and ('Native name updated: '..M.displayName(u))or why
+    elseif target=='label'then
         local ok,why=self.runtime:setLabel(u,nextText)
         if not ok then self.message=why else self.message='Sandbox display label updated; native type/name unchanged.' end
     else
@@ -360,7 +388,7 @@ function W.dispatch(self,action)
         self:setSearchFocus(false);w.tab=a
         if not w.manualSize then
             local slots=0;for _,row in ipairs(state.items)do if row.slotType>0 or row.id>=0 then slots=slots+1 end end
-            local height=a==2 and 430 or a==3 and 320 or math.min(430,194+math.min(slots,6)*42)
+            local height=a==2 and 430 or a==3 and 360 or math.min(430,194+math.min(slots,6)*42)
             w.y=w.y+w.h-height;w.h=height;W.bounds(self,w)
         end
     elseif cmd=='schoolorigin'then local nextSource={all='modded',modded='unknown',unknown='all'};w.schoolOrigin=nextSource[w.schoolOrigin or 'all'];w.magicOffset=1
@@ -379,6 +407,10 @@ function W.dispatch(self,action)
         local found=false;for _,id in ipairs(state.memorized)do if id==a then found=true end end
         local info=self.api.spellInfo(a);if info then local ok,why=self.runtime:memorize(u,a..':'..info.name,not found);W.result(self,ok,why)end
     elseif cmd=='spellsearch'then self:setSearchFocus(true,'spells')
+    elseif cmd=='namesearch'then self:setSearchFocus(true,'native_name');self.message='Type a native name; maximum 32 characters and 47 UTF-8 bytes.'
+    elseif cmd=='nameclear'or cmd=='namelegacy'then
+        local ok,why=self.runtime:setNativeName(u,cmd=='nameclear'and''or u.label or'')
+        w.nameError=not ok and why or nil;self.message=ok and ('Native name updated: '..M.displayName(u))or why
     elseif cmd=='labelsearch'then self:setSearchFocus(true,'label')
     elseif cmd=='labelclear'then local ok,why=self.runtime:setLabel(u,'');W.result(self,ok,why)
     end

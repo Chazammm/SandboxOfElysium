@@ -1,6 +1,8 @@
 local M=require('sandbox.model')
 local Integrity=require('sandbox.integrity')
 local Loadout=require('sandbox.loadout')
+local Condition=require('sandbox.condition')
+local Names=require('sandbox.names')
 local R={}; R.__index=R
 local function same(a,b)
     if #a~=#b then return false end
@@ -30,7 +32,7 @@ function R:spellList(unit,key,max)
         local info=self.api.spellInfo(id); if info then t[#t+1]=id..':'..info.name end
     end; return t
 end
-function R:configure(u,unit)
+function R:configureNative(u,unit)
     if Loadout.available(self.api) then return Loadout.configure(self,u,unit,true) end
     if u.equipment or u.schools then return false,'This scenario requires the newer experimental equipment/base-school API. Saved setup kept.' end
     local known=self:spellList(unit,'unitKnownSpell',59)
@@ -75,6 +77,25 @@ function R:configure(u,unit)
         if not same(self:spellList(unit,'unitMemorizedSpell',29),u.spells) then return false,'Spell memorization rejected: '..u.name end
     end
     return true
+end
+function R:configure(u,unit)
+    local saved=u.condition and M.copy(u.condition)
+    local fresh=not u.baseline
+    if saved and not Condition.available(self.api)then return false,'Saved health/injury state requires the release-next API. Existing setup kept.'end
+    if fresh and u.omitStartingItems then
+        local ok,why,detail=Loadout.omitStartingItems(self,unit);if not ok then return false,why,detail end
+    end
+    local ok,why,detail=self:configureNative(u,unit)
+    if not ok then u.condition=saved;return false,why,detail end
+    if saved then
+        ok,why,detail=Condition.restore(self,u,unit,saved)
+        if not ok then self.lastConfig=self.lastConfig or {};self.lastConfig.actor_state_error=why;return false,why,detail end
+    elseif fresh then
+        ok,why=Condition.capture(self,u,unit);if not ok then return false,why end
+    else
+        self.legacyStateNotice='Legacy setup has no recorded health/injury state; only its recorded configuration can be restored.'
+    end
+    return Names.apply(self,u,unit)
 end
 function R:observeSpellSelection(u,unit,reason,detail)
     if type(self.api.testFieldSpellState)~='function' then return end
@@ -210,7 +231,17 @@ function R:quarantine(s,why,before,details)
     return false,'Native state could not be verified. Editing locked. Export Diagnostics, then Reopen preserved setup.'
 end
 function R:check(s,positions,previous,configuration)
-    return Integrity.inspect(self,s,positions~=false,previous,configuration)
+    local ok,observed,details=Integrity.inspect(self,s,positions~=false,previous,configuration)
+    if not ok then return ok,observed,details end
+    if configuration~=false and self.phase~='after' then
+        for _,u in ipairs(s.units or {})do
+            local named,nameWhy=Names.matches(self,u,self.live[u.id]);if not named then return false,nameWhy,{model_id=u.id,native_id=self.live[u.id],scope='native name'}end
+            if u.condition then
+            local matched,why=Condition.matches(self,u,self.live[u.id])
+            if not matched then return false,why,{model_id=u.id,native_id=self.live[u.id],scope='supported actor state'}end
+        end end
+    end
+    return ok,observed,details
 end
 function R:ready(s)
     if self.phase=='after' then return false,'The final battle snapshot is read only. Back to Sandbox restores the saved setup.' end
@@ -243,7 +274,17 @@ function R:setLabel(u,label)
     if self.diag then self.diag:record('sandbox_label',{model_id=u.id,native_id=self.live[u.id],length=#label,scope='sandbox_display_label'})end
     return true
 end
+function R:setNativeName(u,name)return Names.set(self,u,name)end
 function R:build(s,nativeDeployment)
+    for _,u in ipairs(s.units or {})do if u.nativeName~=nil then
+        local valid,why=M.validNativeName(u.nativeName);if not valid then return false,why end
+        if not Names.available(self.api)then return false,'Recorded individual names need the experimental naming API. Current setup kept.'end
+    end end
+    if s.minimumWidth then
+        local info=type(self.api.testFieldEnvironmentInfo)=='function'and self.api.testFieldEnvironmentInfo()
+        if type(info)~='table'or info.minimumWidthVersion~=1 then return false,'Selected field size needs the release-next experimental size API. Current setup kept.'end
+    end
+    for _,u in ipairs(s.units or {})do if u.condition and not Condition.available(self.api)then return false,'Saved health/injury state requires the release-next experimental API. Current setup kept.'end end
     local function reject(message,details)
         local current=self.current or s;local snapshot=self:snapshot(current)
         self:failure('rebuild',message,current,snapshot,'unchanged',details)
@@ -282,7 +323,9 @@ function R:build(s,nativeDeployment)
     end
     if type(self.api.testFieldState)~='function' then return reject('This editor needs the updated experimental integrity API. Restart with SandboxOfElysium-Testen.bat.') end
     self.spellRepairProblems=nil;self.spellRepairScenario=nil;self.spellRepairSource=nil
-    local old=self.open and self.current and M.copy(self.current) or nil
+    -- The UI may already have changed pending terrain/size options on current.
+    -- Rollback must use the last verified native setup, including its dimensions.
+    local old=self.open and (self.lastKnownGood or self.current) and M.copy(self.lastKnownGood or self.current) or nil
     local before=old and self:snapshot(old) or self:snapshot(s)
     self.lastConfig=nil
     -- Configuration may upgrade earlier legacy actors before a later actor is
@@ -323,12 +366,14 @@ function R:_build(s,nativeDeployment)
     if emptyEditor then spec.emptyEditor=true else spec.commander=a[1].monster;spec.spell=-1 end
     if s.allowMultipleUnique then spec.allowMultipleUnique=true end
     if supported then spec.terrain=s.terrain end
+    if s.minimumWidth then spec.minimumWidth=s.minimumWidth end
     for i=emptyEditor and 1 or 2,#a do spec.friends[#spec.friends+1]={a[i].monster,1} end
     for _,u in ipairs(b) do spec.enemies[#spec.enemies+1]={u.monster,1} end
     local ok,units=self.api.openTestField(spec)
     if not ok then return false,'The extender refused to open the test field: '..tostring(units or 'unknown reason') end
     if supported and self.api.get('squareTerrain',1,1)~=s.terrain then self.open=true;self:close();return false,'Extender terrain support is incompatible; selected terrain was not applied' end
     self.open=true;self.generation=(self.generation or 0)+1; self.width=self.api.get('battleWidth')
+    if s.minimumWidth and self.width<s.minimumWidth then self:close();return false,'The requested minimum field width was not applied; setup kept.'end
     self.emptyEditor=emptyEditor;self.primaryId=nil
     if emptyEditor then
         if units.commander~=-1 then self:close();return false,'Empty-editor contract returned an unexpected commander. Scenario kept.' end
@@ -437,6 +482,7 @@ function R:move(u,x,y)
     return true
 end
 function R:add(s,monster,team,x,y,template)
+    if template and template.nativeName~=nil and not Names.available(self.api)then return false,'Copy needs the experimental native-name API. Existing units kept.'end
     self.lastConfig=nil
     local before=self:snapshot(s)
     local function refused(why,restored)
@@ -491,7 +537,7 @@ function R:add(s,monster,team,x,y,template)
         if not kept then return self:quarantine(s,'placement_rollback_unverified',before,{stage=stage,native_id=unit,
             operation_error=why or 'native target blocked',cleanup_result=removed and 1 or 0,cleanup_detail=removeWhy or 'ok',
             rollback_verified=0,detail=tostring(restoreWhy)}) end
-        return false,kept and 'This unit does not fit here or its saved configuration was refused. Existing army kept; Export Diagnostics for details.' or
+        return false,kept and ('Placement refused: '..tostring(why or 'native target blocked')..'. Existing army kept; Export Diagnostics for details.') or
             'Placement failed and the previous positions could not be confirmed. Stop editing and Export Diagnostics.'
     end
     if self.width~=oldWidth then self:cacheObjects() end

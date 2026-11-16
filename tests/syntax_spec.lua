@@ -21,4 +21,12 @@ assert(loadfile('tests/empty_probe.lua'))
 assert(loadfile('tests/loadout_probe.lua'))
 assert(loadfile('tests/panel_probe.lua'))
 assert(loadfile('tests/cursed_probe.lua'))
+
+
+assert(loadfile('mod/SandboxOfElysium/sandbox/condition.lua'))
+assert(loadfile('mod/SandboxOfElysium/sandbox/battlefields.lua'))
+
+assert(loadfile('tests/release_next_probe.lua'))
+assert(loadfile('mod/SandboxOfElysium/sandbox/names.lua'))
+assert(loadfile('tests/native_names_probe.lua'))
 print('All distributed Lua files and native/terrain/launcher probes parse')

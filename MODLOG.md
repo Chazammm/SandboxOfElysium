@@ -1,5 +1,11 @@
 # SandboxOfElysium development journal
 
+## 2026-11-16 — separate release-next editor.9 development
+
+Implemented progressive terrain inventory/selection, minimum sizes, bounded actor-state persistence, new-unit starting-equipment policy and definition-based Modded Units. The actual 356-record vanilla catalog differs from 59 template files; six neutral contexts are playable. Fixed pending-size rollback copying mutated options instead of the last verified setup. Exact scenery/full native state remain incomplete.
+
+All 141 offline checks and C parser 21/policy 63 pass. Final native suites and visible Jungle/CrabCult Save/Load, battle, Rematch and Reset evidence are detailed in [the current report](docs/TEST-RELEASE-NEXT-2026-11-16.md). Both isolated profiles were backed up. New source stays local on separate Sandbox/Extender branches; no new PR, push, contact or binary distribution. Earlier journal entries below retain their exact source-era text.
+
 ## 2026-11-15/16 — English documentation and current upstream source review
 
 Prepared five separate source contributions plus a combined review branch against freshly fetched/rechecked official dev df09497f04a39ff8fb7b0979dedde7dfed120c64 (3.4.4/API14). Ranged/origin/core are independent; presentation stacks on core, configuration on presentation. The separate fork contains the full capability matrix (60 function/member names, 38 getter keys, four setters, five hook sites), exact build/native bindings and five English PR drafts. No PR, merge, upstream push, contact or Extender binary release. Personal contribution terms/sign-off remain pending; no sign-off was invented.
@@ -168,3 +174,8 @@ Three actual b3534339 diagnostics and the matching frozen log/recovery were pres
 - Actual BAT runs tested clean build, cache reuse, launch from a different working directory, three fresh profile handshakes, missing helper, unsafe identity, real error pause and duplicate launch rejection. Windows PowerShell lacked Get-FileHash here; launcher uses .NET SHA256 instead.
 - Visible Sandbox opened; Plain/Forest switched; native deployment and both native views confirmed. Forest Spearman vs Goblin fought through the actual Start battle button, A won round 3. This completed the earlier outstanding manual native-deployment button test.
 - Regular config, installed extender and installed game EXE hashes unchanged. No normal save loaded, no release/PR, no experimental DLL added to public package inputs. Full scope and untested failure branches: docs/TEST-LAUNCHER-2026-11-13.md.
+
+
+## 2026-11-16 — Individual native names, editor.10
+
+Checked current upstream dev first; no ordinary individual-name API exists. Added separate owned-generation name formatter/commander-record experiment in ExtNext, outside submitted PR #2. Current Sandbox uses Name tab with32-codepoint/47-byte limit, explicit rejection/counters, clear and deliberate legacy-label promotion. Schema4 hex names preserve exact UTF-8/outer spaces; old formats remain readable and migration preserves source files. Move/Copy/Save/Load/Reset/Rematch and original native combat traces tested. Read [exact native/offline/visible evidence and limits](docs/TEST-NATIVE-NAMES-2026-11-16.md). No modified binary distribution, push or additional PR.

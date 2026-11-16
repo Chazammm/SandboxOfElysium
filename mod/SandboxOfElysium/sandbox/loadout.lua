@@ -1,6 +1,7 @@
 -- Exact, identity-based equipment/base-school configuration. All mutations go
 -- through the separate owned-test-field native transaction, never templates.
 local M=require('sandbox.model')
+local Condition=require('sandbox.condition')
 local L={}
 L.slotNames={[0]='Unavailable',[1]='Weapon',[2]='Missile weapon',[3]='Helmet',[4]='Body armor',[5]='Gauntlets',[6]='Boots',[7]='Misc'}
 function L.available(api)
@@ -27,6 +28,11 @@ function L.read(r,unit)
     return state
 end
 function L.capture(r,u,state)
+    local condition
+    if Condition.available(r.api)then
+        local why;condition,why=Condition.read(r,state.unit)
+        if not condition then return false,why end
+    end
     u.equipment={};u.schools={};u.items={}
     for _,row in ipairs(state.items) do if row.id>=0 then
         u.equipment[#u.equipment+1]={position=row.position,id=row.id,name=row.name}
@@ -35,6 +41,8 @@ function L.capture(r,u,state)
     for _,row in ipairs(state.schools) do u.schools[#u.schools+1]={path=row.path,name=row.name,base=row.base} end
     u.baseline=u.baseline or {};u.baseline.known=r:spellList(state.unit,'unitKnownSpell',59)
     u.spells=r:spellList(state.unit,'unitMemorizedSpell',29)
+    if condition then u.condition=Condition.save(condition)end
+    return true
 end
 function L.wanted(r,u,state)
     local wanted={items={},schools={},known={},memorized={}}
@@ -110,7 +118,8 @@ local function clearCursedDefaults(r,unit,state,wanted)
     if caps.cursedRemoval~=1 then return false,'cursed_removal_unavailable',{rollbackVerified=true,stage='restore_cursed_defaults'} end
     -- Only freshly-created reconstruction actors take this path. Their random
     -- native selections are replaced by the exact saved choices after cleanup.
-    local initial={};L.capture(r,initial,state);local stage,why=L.wanted(r,initial,state)
+    local initial={};local captured,captureWhy=L.capture(r,initial,state);if not captured then return false,captureWhy,{rollbackVerified=true}end
+    local stage,why=L.wanted(r,initial,state)
     if not stage then return false,why,{rollbackVerified=true,stage='restore_cursed_defaults'}end
     stage.memorized={}
     local ok,reason,detail=r.api.setTestFieldConfiguration(unit,stage)
@@ -124,10 +133,39 @@ local function clearCursedDefaults(r,unit,state,wanted)
     if r.diag then r.diag:record('restore_cursed_defaults',{native_id=unit,count=#removals,result='new actor only; saved spells restored next'})end
     return true
 end
+function L.omitStartingItems(r,unit)
+    if not L.available(r.api)then return false,'Omitting starting items needs the equipment configuration API.'end
+    local state,why=L.read(r,unit);if not state then return false,why end
+    local present=0
+    for _,slot in ipairs(state.items)do if slot.id>=0 then
+        present=present+1
+        if slot.permanentEffects then return false,'Starting equipment cannot be omitted safely: native initialization implanted '..slot.name..'. Existing army kept.'end
+    end end
+    if present==0 then return true end
+    local initial={};local captured,captureWhy=L.capture(r,initial,state);if not captured then return false,captureWhy end
+    local wanted;wanted,why=L.wanted(r,initial,state);if not wanted then return false,why end
+    for _,slot in ipairs(state.items)do if slot.id>=0 and slot.cursed then
+        wanted.items[slot.position+1]=-1;wanted.removeCursed={position=slot.position,item=slot.id}
+        local ok,reason,detail=r.api.setTestFieldConfiguration(unit,wanted)
+        if not ok then return false,'Cannot omit starting equipment without changing the native spell/organ state: '..tostring(reason),detail end
+        wanted.removeCursed=nil
+    end end
+    for i=1,20 do wanted.items[i]=-1 end
+    local ok,reason,detail=r.api.setTestFieldConfiguration(unit,wanted)
+    if not ok then return false,'Cannot omit starting equipment without changing the native spell state: '..tostring(reason),detail end
+    local after;after,why=L.read(r,unit);if not after then return false,why end
+    for _,slot in ipairs(after.items)do if slot.id>=0 then return false,'Native starting-item removal was not verified.',{rollbackVerified=false}end end
+    if not listSame(state.known,after.known)or not listSame(state.memorized,after.memorized)or state.organInjuryFlags~=after.organInjuryFlags then
+        return false,'Starting-item removal changed unrelated native state.',{rollbackVerified=false}
+    end
+    if r.diag then r.diag:record('omit_starting_items',{native_id=unit,count=present,result='all positions empty; original spell order and organ flags retained'})end
+    return true
+end
 function L.configure(r,u,unit,restoring,options)
     local state,why=L.read(r,unit);if not state then return false,why end
     if not u.baseline then
-        L.capture(r,u,state);r:observeSpellSelection(u,unit)
+        local captured,captureWhy=L.capture(r,u,state);if not captured then return false,captureWhy end
+        r:observeSpellSelection(u,unit)
         return state.valid==true,state.valid==true and nil or 'Native starting configuration is invalid.'
     end
     local wanted;wanted,why=L.wanted(r,u,state);if not wanted then return false,why end
@@ -149,7 +187,8 @@ function L.configure(r,u,unit,restoring,options)
     if not ok then return false,'Configuration refused: '..tostring(reason),detail end
     local matched;matched,why=L.matches(r,u,unit)
     if not matched then return false,why,{rollbackVerified=false} end
-    L.capture(r,u,assert(L.read(r,unit)))
+    local observed;observed,why=L.read(r,unit);if not observed then return false,why,{rollbackVerified=false}end
+    local captured;captured,why=L.capture(r,u,observed);if not captured then return false,why,{rollbackVerified=false}end
     return true
 end
 function L.change(r,u,edit,action)
@@ -157,7 +196,7 @@ function L.change(r,u,edit,action)
     local before=r:snapshot(r.current)
     local unit=r.live[u.id];local old=M.copy(u);local candidate=M.copy(u)
     local state;state,why=L.read(r,unit);if not state then return false,why end
-    if not candidate.equipment then L.capture(r,candidate,state) end
+    if not candidate.equipment then local captured;captured,why=L.capture(r,candidate,state);if not captured then return false,why end end
     local accepted,options;accepted,why,options=edit(candidate,state);if not accepted then return false,why end
     local ok,detail;ok,why,detail=L.configure(r,candidate,unit,false,options)
     if not ok then
