@@ -1,4 +1,4 @@
-param([string]$ExtenderSource='', [switch]$CheckOnly, [switch]$NoWait, [switch]$EditingProbe, [switch]$PlacementProbe, [switch]$InterfaceProbe, [switch]$InspectorProbe, [ValidatePattern('^[a-z0-9_,]*$')][string]$InspectorCases='', [switch]$BattlefieldProbe, [switch]$TerrainCandidates, [switch]$CrabCult, [ValidatePattern('^[a-z0-9_,]*$')][string]$BattlefieldCases='', [ValidateSet('baseline','regression')][string]$ProbeMode='regression', [ValidateRange(800,3840)][int]$WindowWidth=1200, [ValidateRange(600,2160)][int]$WindowHeight=900)
+param([string]$ExtenderSource='', [switch]$CheckOnly, [switch]$NoWait, [switch]$Muted, [switch]$EditingProbe, [switch]$PlacementProbe, [switch]$InterfaceProbe, [switch]$InspectorProbe, [ValidatePattern('^[a-z0-9_,]*$')][string]$InspectorCases='', [switch]$BattlefieldProbe, [switch]$TerrainCandidates, [switch]$CrabCult, [ValidatePattern('^[a-z0-9_,]*$')][string]$BattlefieldCases='', [ValidateSet('baseline','regression')][string]$ProbeMode='regression', [ValidateRange(800,3840)][int]$WindowWidth=1200, [ValidateRange(600,2160)][int]$WindowHeight=900)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version 2
 $root=[IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
@@ -222,7 +222,8 @@ try {
     }
     Write-Host "Extender version: $version (local build; SHA256 $(Hash $plugin))"
     Write-Host 'In game: Sandbox -> Battlefield (verified selection) -> Open with native deployment -> Start battle.'
-    $gameProcess=& (Join-Path $PSScriptRoot 'launch-terrain-lab.ps1') -PassThru -WindowWidth $WindowWidth -WindowHeight $WindowHeight
+    if ($Muted) { Write-Host 'Audio: muted for this isolated instance (--nosound --musicvol=0).' }
+    $gameProcess=& (Join-Path $PSScriptRoot 'launch-terrain-lab.ps1') -PassThru -Muted:$Muted -WindowWidth $WindowWidth -WindowHeight $WindowHeight
     $statusFile=Join-Path $profile ('coe5se_data/SandboxLauncherCheck/response-'+$nonce+'.ini')
     $log=Join-Path $lab 'runtime/coe5se_logs/coe5mod.log'
     $deadline=[DateTime]::UtcNow.AddSeconds(45)
@@ -251,7 +252,7 @@ try {
     Write-Host ('Experimental features (runtime report): lifecycle={0}, multiple unique={1}, inline input={2}, fitted icons={3}. This does not replace functional tests.' -f $status['lifecycle'],$status['multiple_unique'],$status['inline_input'],$status['fitted_icons'])
     Write-Host ('Editor extensions (functions present, not an acceptance test): empty teams={0}, final snapshot API={1}.' -f $status['empty_editor'],$status['final_snapshot_api'])
     Write-Host ('Equipment/base schools: API available={0}. Requires the separate local Extender; not a new functional test.' -f $status['configuration'])
-    @{pid=$gameProcess.Id;nonce=$nonce;profile=$profile;gameHash=$gameHash;pluginHash=(Hash $plugin);extenderVersion=$version;status=$status} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $lab 'last-launch.json') -Encoding UTF8
+    @{pid=$gameProcess.Id;nonce=$nonce;profile=$profile;gameHash=$gameHash;pluginHash=(Hash $plugin);extenderVersion=$version;status=$status;muted=[bool]$Muted} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $lab 'last-launch.json') -Encoding UTF8
     $launchLock.Dispose();$launchLock=$null
     if (-not $NoWait) {
         Write-Host 'This window remains open until the game exits.'

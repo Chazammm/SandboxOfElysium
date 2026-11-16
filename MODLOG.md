@@ -1,5 +1,9 @@
 # SandboxOfElysium development journal
 
+## 2026-11-16 — tested checkpoints and editor.11 native presets
+
+Created separate local source checkpoints for the manually tested editor.10 and corresponding experimental Extender. Added five guarded native stock presets after fresh in-game API matrices; visibly checked the eleven-choice picker, Farm battle/Rematch/post-battle/Reset and Oasis scene. Kept current controls and placement logic. Siege gates expose a native structure-provenance gap; other unverified contexts remain unavailable. Added bounded environment diagnostics and a separate context API proposal. Agent-launched games are now muted per user instruction. [Exact revisions, tests and limitations](docs/TEST-VANILLA-PRESETS-2026-11-16.md). No push, release, new PR, submitted-PR edits or binary bundling.
+
 ## 2026-11-16 — separate release-next editor.9 development
 
 Implemented progressive terrain inventory/selection, minimum sizes, bounded actor-state persistence, new-unit starting-equipment policy and definition-based Modded Units. The actual 356-record vanilla catalog differs from 59 template files; six neutral contexts are playable. Fixed pending-size rollback copying mutated options instead of the last verified setup. Exact scenery/full native state remain incomplete.

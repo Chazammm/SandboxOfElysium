@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — editor.11 verified stock contexts, 2026-11-16
+
+- Preserve the tested editor.10 source in a local checkpoint, separately from its experimental Extender source.
+- Add Farm, Village, Hoburg Village, Oasis and Tent Village only after native context, obstacle, placement, persistence, battle, Reset/Rematch and cleanup acceptance. Keep the six existing terrains, UI controls and placement/recovery logic.
+- Show verified template availability separately from the read-only 59-template inventory. Include bounded observed native context in diagnostics; selection before load is not presented as a full environment snapshot.
+- Keep failed rural candidates, siege/gate, sea/coast and underground contexts unavailable with documented blockers. A separate general-purpose context API proposal remains local; no new PR or DLL distribution.
+- Add process-local muted launching with `-Muted`, and require it for agent-run isolated instances. See docs/TEST-VANILLA-PRESETS-2026-11-16.md for actual native and visible results.
+
 ## Unreleased local development — editor.10,2026-11-16
 
 - Add individually scoped native names in the existing Name tab, native Inspect and original combat messages through a separate experimental API. Shared unit templates and submitted PR #2 remain unchanged.

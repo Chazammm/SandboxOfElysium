@@ -1,4 +1,4 @@
-param([switch]$PassThru,[ValidateRange(800,3840)][int]$WindowWidth=1200,[ValidateRange(600,2160)][int]$WindowHeight=900)
+param([switch]$PassThru,[switch]$Muted,[ValidateRange(800,3840)][int]$WindowWidth=1200,[ValidateRange(600,2160)][int]$WindowHeight=900)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 $lab=Join-Path $root 'private/terrain-lab'
@@ -17,6 +17,7 @@ $info=[System.Diagnostics.ProcessStartInfo]::new()
 $info.FileName=Join-Path $lab 'runtime/CoE5.exe';$info.WorkingDirectory=Join-Path $lab 'runtime';$info.UseShellExecute=$false
 $info.WindowStyle=[System.Diagnostics.ProcessWindowStyle]::Normal
 $info.Arguments='-w --winres={0}*{1} --nofade --nogamepad' -f $WindowWidth,$WindowHeight
+if ($Muted) { $info.Arguments+=' --nosound --musicvol=0' }
 $info.EnvironmentVariables['COE5_SAVE']=$expectedProfile;$info.EnvironmentVariables['COE5_DATA']=$identity.data
 if ($info.EnvironmentVariables['COE5_SAVE'] -ne $expectedProfile) { throw 'Could not safely set COE5_SAVE.' }
 $process=[System.Diagnostics.Process]::Start($info)

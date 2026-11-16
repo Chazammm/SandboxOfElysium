@@ -195,7 +195,7 @@ function U:smallCheck()
 end
 function U:terrainPicker()
     while true do
-        local rows={{0,'Only verified neutral land contexts are playable. Template files and world terrains are separate.'},{section='Verified neutral fields'}}
+        local rows={{0,'Only verified native contexts are playable. Template files and world terrains are separate.'},{section='Verified battlefields'}}
         local available={}
         for id in pairs(self.catalog.testFieldTerrains)do available[#available+1]=id end
         table.sort(available,function(a,b)return M.terrainNames[a]<M.terrainNames[b]end)
@@ -212,7 +212,7 @@ function U:terrainPicker()
         elseif available[id-100]then
             self.scenario.terrain=available[id-100]
             self.message='Terrain changed. Keep positions verifies exact cells; native deployment explicitly repositions units.'
-            self.diag:record('terrain',{terrain=self.scenario.terrain,scope='verified neutral field'});return
+            self.diag:record('terrain',{terrain=self.scenario.terrain,scope='verified native terrain/template context'});return
         end
     end
 end
@@ -222,11 +222,11 @@ function U:templateCatalogue()
     local page=1
     while true do
         local rows={{0,#templates..' stock template names examined; a file is not proof of a playable native context.'},
-            {0,'Sieges/forts, water, special planes and variations need verified native context and remain unavailable.'},
+            {0,'Sieges, water, other planes and unlisted variants remain unavailable.'},
             {section='Templates: page '..page..' / '..math.max(1,math.ceil(#templates/6))}}
         for i=(page-1)*6+1,math.min(page*6,#templates)do local row=templates[i]
             rows[#rows+1]={0,row.name..' | '..(row.installed and ('stored canvas '..tostring(row.storedWidth)..' x '..tostring(row.storedHeight))or'not installed')}
-            rows[#rows+1]={0,'Unavailable: native gameplay context is not verified.'}
+            rows[#rows+1]={0,row.verifiedContext and 'Playable via verified presets only; other variants remain unverified.'or'Unavailable: native context or exact restoration is not verified.'}
         end
         rows[#rows+1]={1,'Previous'};rows[#rows+1]={2,'Next'};rows[#rows+1]={999,'Back'}
         local id=self:menu('Native template catalogue (read only)',rows)

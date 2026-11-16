@@ -1,8 +1,8 @@
-# Installation and testing — editor.9
+# Installation and testing — editor.11
 
 ## Choose the correct build
 
-The repository contains **0.1.0+editor.9**, an experimental Windows development version for **Conquest of Elysium 5.43 x64**. It includes the mod, documentation and local development tools. It is not a complete first-time player package.
+The repository contains **0.1.0+editor.11**, an experimental Windows development version for **Conquest of Elysium 5.43 x64**. It includes the mod, documentation and local development tools. It is not a complete first-time player package.
 
 The full editor needs additional APIs from a **separately built experimental CoE5SE**. The local release-next experiment is based on the separately submitted 3.4.4 source contribution, with additional environment/minimum-size/bounded-state work. That additional work is not part of PR #2. Unmodified official CoE5SE, including examined 3.4.4, does not implement the full editor contract. The Ranged fix alone is also insufficient. A GitHub source ZIP does not install these dependencies.
 
@@ -19,7 +19,7 @@ The [submitted source-only API PR #2](https://github.com/musical-pianist/coe5se/
 5. Choose Team A or B, search a unit, click Select, then right-click free ground. Click Select again to deselect. Both teams may be empty while editing; Clear battlefield removes all actors.
 6. Put at least one actor on each team and choose Start battle. Afterward try Back to Sandbox (restore setup), Reset setup and Rematch.
 
-Prerequisites: Windows PowerShell, Python 3, prepared `private/lab/identity.json` and `private/terrain-lab`, the owned verified game, separate `../SandboxOfElysium-ExtenderLab-next` source and the existing llvm-mingw toolchain. These private components are absent from Git. **The BAT is not an installer for another computer.** `SandboxOfElysium-Testen.bat -CheckOnly` checks the existing paths without launching. Optional `-CrabCult` uses already installed private files; CrabCult is not included.
+Prerequisites: Windows PowerShell, Python 3, prepared `private/lab/identity.json` and `private/terrain-lab`, the owned verified game, separate `../SandboxOfElysium-ExtenderLab-next` source and the existing llvm-mingw toolchain. These private components are absent from Git. **The BAT is not an installer for another computer.** `SandboxOfElysium-Testen.bat -CheckOnly` checks the existing paths without launching. Use `SandboxOfElysium-Testen.bat -Muted` for process-local `--nosound --musicvol=0`; agents always use muted launches without changing normal game/system audio. Optional `-CrabCult` uses already installed private files; CrabCult is not included.
 
 The launcher uses only its private runtime/profile. Scenario and diagnostic files are under **private/terrain-lab/profile/coe5se_data/SandboxOfElysium**. Back up your own files before manual changes. The normal installation/profile is not updated and existing data is not deleted.
 
@@ -27,7 +27,7 @@ The launcher uses only its private runtime/profile. Scenario and diagnostic file
 
 1. Install your own compatible Windows CoE5. Obtain official CoE5SE and its instructions from its [official repository](https://github.com/musical-pianist/coe5se). Stock CoE5SE alone does not enable this full development editor.
 2. Download/clone this repository. The mod folder is **mod/SandboxOfElysium**; the entire repository is not a game mod folder.
-3. Full editor.9 currently requires a separately obtained and appropriately built compatible experimental Extender plus an independently prepared isolated game/profile. This download sets up neither. Do not replace a regular installation with the experimental build.
+3. Full editor.11 currently requires a separately obtained and appropriately built compatible experimental Extender plus an independently prepared isolated game/profile. This download sets up neither. Do not replace a regular installation with the experimental build.
 4. Once that separate test environment is ready, copy the complete **SandboxOfElysium** mod folder into its own **mods** directory and enable CoE5SE and SandboxOfElysium in its test profile. The `.c5m` belongs directly inside the SandboxOfElysium folder. Preserve existing scenario files separately.
 
 Mac, Linux, multiplayer and arbitrary mod combinations have not been accepted for this editor. A source review branch is not a public binary release.
@@ -50,3 +50,7 @@ Use Export Diagnostics on the battlefield or in a recovery message. The dialog n
 Disable the mod and remove its mod folder to uninstall. Keep scenario data under `coe5se_data/SandboxOfElysium` if needed. The development BAT does not install or remove the normal Extender.
 
 For individual names: right-click an actor → Edit → Name. Maximum32 Unicode code points and 47 UTF-8 bytes; excess input shows an error and is refused. Naming needs the separate local naming experiment; PR #2 and stock3.4.4 alone do not provide it. [Native naming tests and exact limitations](docs/TEST-NATIVE-NAMES-2026-11-16.md).
+
+## Verified battlefields in editor.11
+
+Choose **Sandbox → Battlefield → Farm, Village, Hoburg Village, Oasis or Tent Village**, then **Open with native deployment (reposition units)** for a new layout. The six previous terrain choices and all current controls remain available. Saved exact positions still require native verification; scenery may block a cell after rebuilding. Sieges/gates, sea/coasts and underground contexts remain unavailable. [Tests, exact checkpoint pairing and blockers](docs/TEST-VANILLA-PRESETS-2026-11-16.md).

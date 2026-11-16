@@ -1,5 +1,7 @@
 # Verification results — 2026-11-13
 
+**2026-11-16 editor.11:** [Local checkpoint pairing, five new native presets, 162 offline cases, ordinary-build API regressions and actual Farm/Oasis visible observations](TEST-VANILLA-PRESETS-2026-11-16.md). Failures, unsupported contexts and QA quota reruns are recorded separately. This does not upgrade historical test coverage.
+
 **2026-11-16 editor.10:** [Native individual naming, limits, exact persistence and separate API evidence](TEST-NATIVE-NAMES-2026-11-16.md). Current naming tests and visible observations are distinct from all historical reports below.
 
 **2026-11-15/16 current upstream port:** [Five CoE5SE 3.4.4 source contributions and combined verification](TEST-API-CONTRIBUTIONS-2026-11-15.md). Final combined native runs pass 21 standard, 14 fixture and four placement groups (including repeats); visible evidence and final-revision limits are distinguished. Existing product Lua is unchanged. Earlier results below are not automatically later-build acceptance.

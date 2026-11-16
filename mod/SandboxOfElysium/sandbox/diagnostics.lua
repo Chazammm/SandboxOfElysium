@@ -48,6 +48,14 @@ function D:snapshot(s,runtime)
         recovery_file=runtime.recoveryFile or 'not written or not needed',allow_multiple_unique=s.allowMultipleUnique and 1 or 0,
         native_query_complete=native.complete==true and 1 or 0,native_rows=#(native.units or {}),native_issues=#(native.issues or {}),
         limits='24 model rows; 48 native rows; 256 nonempty raw grid cells; capped export, not complete engine state'},units={},nativeUnits={},cells={}}
+    if runtime.open and type(self.api.testFieldEnvironmentState)=='function'then
+        local ok,value,why=pcall(self.api.testFieldEnvironmentState)
+        if ok and type(value)=='table'then
+            for _,key in ipairs({'version','plane','ground','temperature','fortParts','nativeTemplate','nativeTemplateObserved','customMapReplaced','setupReturned','atSea','siege','underground','scope'})do
+                local v=value[key];out.summary['environment_'..key]=type(v)=='boolean'and(v and 1 or 0)or v
+            end
+        else out.summary.environment_result=tostring(why or value)end
+    end
     for i=1,math.min(24,#units) do
         local u=units[i];local live=runtime.live[u.id]
         local row={id=u.id,model_id=u.id,monster=u.monster,name=u.name,sandbox_label=u.label or '',label_scope='legacy sandbox-only label; separate from native personal name',display_name_hex=M.displayName(u):gsub('.',function(c)return('%02x'):format(c:byte())end),saved_native_name_hex=u.nativeName and u.nativeName:gsub('.',function(c)return('%02x'):format(c:byte())end)or 'not configured',native_name_scope='native_individual_v1; hex preserves whitespace and UTF-8',team=u.team,saved_x=u.x,saved_y=u.y,live=live or 'none',native_id=live or 'none',

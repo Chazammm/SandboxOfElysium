@@ -37,7 +37,7 @@ function M.validLabel(label)
 end
 -- Identity bindings observed in the loaded vanilla terrain table. Availability
 -- still comes from the separate extender's verified capability list.
-M.terrainNames={[0]='Plain',[2]='Forest',[12]='Mountains',[107]='Swamp',[115]='Jungle',[117]='Desert'}
+M.terrainNames={[0]='Plain',[2]='Forest',[12]='Mountains',[107]='Swamp',[115]='Jungle',[117]='Desert',[5]='Farm',[18]='Village',[70]='Hoburg Village',[98]='Oasis',[109]='Tent Village'}
 function M.copy(value)
     if type(value) ~= 'table' then return value end
     local out = {}; for k,v in pairs(value) do out[k] = M.copy(v) end; return out

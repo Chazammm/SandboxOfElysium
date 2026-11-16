@@ -2,13 +2,15 @@
 
 An experimental Lua sandbox for **Conquest of Elysium 5**. Open **Sandbox** from the main menu, prepare two armies, then fight using the game's native battle AI.
 
-**Current development version: `0.1.0+editor.10`.** See [Installation and testing](INSTALLATION.md). The editor requires additional APIs from a **separate experimental CoE5 Script Extender**. Stock upstream CoE5SE, including the examined 3.4.4 build, does not provide the complete editor contract. This repository contains no Extender DLL, game files or third-party mod files. Its source update does not replace the older 0.1.0 prototype package.
+**Current development version: `0.1.0+editor.11`.** See [Installation and testing](INSTALLATION.md). The editor requires additional APIs from a **separate experimental CoE5 Script Extender**. Stock upstream CoE5SE, including the examined 3.4.4 build, does not provide the complete editor contract. This repository contains no Extender DLL, game files or third-party mod files. Its source update does not replace the older 0.1.0 prototype package.
+
+**Current map work:** [five additional native presets, checkpoint revisions, exact tests and unavailable contexts](docs/TEST-VANILLA-PRESETS-2026-11-16.md). Eleven verified fields are selectable with the matching separate experiment.
 
 **Local release-next development:** [feature status, actual template/terrain inventory, tests and remaining native gaps](docs/TEST-RELEASE-NEXT-2026-11-16.md). This branch is not a complete release. Its additional native experiment is separate from the submitted PR #2 and is not bundled.
 
 All maintained documentation, interface text and future GitHub contributions use English. Historical test results remain version-specific; they are not evidence that a later build passed the same tests.
 
-[Current 3.4.4 source contribution stack and test results](docs/TEST-API-CONTRIBUTIONS-2026-11-15.md): five review contributions plus a combined branch, kept separate from this mod. They are not merged upstream or supplied as a binary release.
+[Current 3.4.4 source contribution stack and test results](docs/TEST-API-CONTRIBUTIONS-2026-11-15.md): five review contributions plus a combined branch, kept separate from this mod. Those are historical preparation results. The combined source contribution was subsequently merged into upstream dev; the newer local APIs remain separate and are not supplied as a binary release.
 
 ## Test on the existing development computer
 
@@ -20,7 +22,7 @@ All maintained documentation, interface text and future GitHub contributions use
 
 The BAT uses only `private/terrain-lab/runtime` and **`private/terrain-lab/profile`**. Scenarios and diagnostics go to `private/terrain-lab/profile/coe5se_data/SandboxOfElysium`. It does not install into the normal game/profile. A missing fresh runtime profile confirmation stops the exact newly launched test process. A DLL on disk alone is not proof that an API works.
 
-This launcher requires the already prepared private environment, an owned verified Windows CoE5 5.43 x64 installation, Python 3, the separate `../SandboxOfElysium-ExtenderLab-next` source and the existing llvm-mingw toolchain. Private components are deliberately absent from Git. **The BAT is not a first-time installer.** Use `SandboxOfElysium-Testen.bat -CheckOnly` for path checks or `-WindowWidth 1704 -WindowHeight 900` for more visible map area. Builds remain under `private/terrain-lab/builds`. A known older fallback cannot supply the complete editor; missing integrity APIs refuse editing. Stale extra files and running test games are reported rather than deleted. [Launcher verification](docs/TEST-LAUNCHER-2026-11-13.md).
+This launcher requires the already prepared private environment, an owned verified Windows CoE5 5.43 x64 installation, Python 3, the separate `../SandboxOfElysium-ExtenderLab-next` source and the existing llvm-mingw toolchain. Private components are deliberately absent from Git. **The BAT is not a first-time installer.** Use `SandboxOfElysium-Testen.bat -Muted` to disable sound for that isolated process, `-CheckOnly` for path checks or `-WindowWidth 1704 -WindowHeight 900` for more visible map area. Builds remain under `private/terrain-lab/builds`. A known older fallback cannot supply the complete editor; missing integrity APIs refuse editing. Stale extra files and running test games are reported rather than deleted. [Launcher verification](docs/TEST-LAUNCHER-2026-11-13.md).
 
 ## Battlefield controls
 
@@ -64,7 +66,7 @@ The post-battle view uses a native capture after aftermath and before upkeep cle
 
 ## Terrain and development status
 
-The separate local experiment originally used CoE5SE dev `d96f2b784e97e115022a2598da2c821dd9520135` (3.4.0/API 11). The [source-only API contribution](docs/TEST-SINGLE-PR-2026-11-16.md) is submitted as [CoE5SE PR #2](https://github.com/musical-pianist/coe5se/pull/2) against current dev `df09497f04a39ff8fb7b0979dedde7dfed120c64` (3.4.4); it is not an upstream release. The separate release-next worktree extends this with environment/minimum-size/bounded-state APIs. Its tested positive list is **Plain, Forest, Mountains, Swamp, Desert and Jungle**, checked against loaded IDs/names. Water, siege, special planes and full campaign climate/season/enchantment equivalence are unsupported. Native terrain objects may block old saved positions after regeneration. Native deployment is explicit; exact-position operations never silently redeploy. Temporary parking resolves placement cycles only if all final footprints verify. [Terrain evidence](docs/TERRAIN-EXPERIMENT-2026-11-13.md).
+The separate local experiment originally used CoE5SE dev `d96f2b784e97e115022a2598da2c821dd9520135` (3.4.0/API 11). The [source-only API contribution](docs/TEST-SINGLE-PR-2026-11-16.md), [CoE5SE PR #2](https://github.com/musical-pianist/coe5se/pull/2), is now squash-merged into verified upstream dev `be8a2bf7b4fa094d828e2ad56eb0376e51adf3e1`. The local experiment retains its tested branch and separately extends the core with naming, environment/minimum-size/bounded-state and guarded stock-context APIs; it has not been rebased or submitted as another PR. Its tested positive list is **Plain, Forest, Mountains, Swamp, Desert, Jungle, Farm, Village, Hoburg Village, Oasis and Tent Village**. The five new fields require matching loaded stock metadata and observed native setup; an active custom template replacement refuses safely. Water, siege, special planes and full campaign climate/season/enchantment equivalence are unsupported. Native terrain objects may block old saved positions after regeneration. Native deployment is explicit; exact-position operations never silently redeploy. Temporary parking resolves placement cycles only if all final footprints verify. [Terrain evidence](docs/TERRAIN-EXPERIMENT-2026-11-13.md).
 
 Historical prototype 0.1.0 tests used stock dev `57abc69a2ddb272a5b9049b4a561367066d9d99e` (3.3.0); the pre-existing normal installation had 3.2.2. Neither is evidence of full editor.8 compatibility. The normal installation remains unchanged.
 
