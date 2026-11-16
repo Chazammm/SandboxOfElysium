@@ -1,10 +1,14 @@
+# CoE5SE API PR: submitted description
+
+[PR #2](https://github.com/musical-pianist/coe5se/pull/2) is open against `dev`. The filename retains its preparation history; the description below is the submitted version.
+
 What this changes, and why:
 
-SandboxOfElysium needs an owned main-menu battlefield whose editor model stays consistent with native actors, cells and configuration. This combines the prepared API contributions into one source-only proposal against official `dev`, retaining current upstream machinery wherever it already supplies the required behavior.
+These are general technical capabilities for Lua mods that need an owned main-menu test battlefield, reliable native actor/configuration state, loaded-content origin and catalog queries. SandboxOfElysium is the current consumer and integration test application; the mod remains in its own repository and is not part of this change. This combines the prepared API contributions into one source-only proposal against official `dev`, retaining current upstream machinery wherever it already supplies the required behavior.
 
 Sandbox source: https://github.com/Chazammm/SandboxOfElysium
 
-Base: `musical-pianist/coe5se:dev` at `df09497f04a39ff8fb7b0979dedde7dfed120c64` (3.4.4/API 14), fetched again on 2026-11-16. Candidate: `Chazammm:pr/sandbox-editor-api-20261116` at `3195a061c78a5932025553f6a2fe4d4d908193a7`.
+Base: `musical-pianist/coe5se:dev` at `df09497f04a39ff8fb7b0979dedde7dfed120c64` (3.4.4/API 14), fetched again on 2026-11-16. Candidate: `Chazammm:pr/sandbox-editor-api-20261116` at `816671921e1b0499b2e69ead87dc19c112304004`.
 
 ## API areas
 
@@ -50,7 +54,7 @@ Seven Windows 5.43 mappings are added in `game_addresses.h`; their address index
 
 Windows x64 CoE5 **5.43**; unchanged upstream `src/build.sh`, prescribed **llvm-mingw20260922**. Final commit rebuilt without warnings/errors. Private plugin SHA256: `86be1e51416a5000b108f654f9445e45170e74837bc0bfdbfdccb03a62babb4c`.
 
-All nine native runs were repeated on the exact clean final commit: **61 passing group executions / 54 distinct named groups**, including seven repeated loadout groups:
+The tests below ran on the clean unsigned candidate `3195a061c78a5932025553f6a2fe4d4d908193a7`. All seven signed commits have exactly the same source trees as their unsigned equivalents; the final signed tree is identical, including the tests. The Windows build was repeated on signed HEAD and its three binaries matched the tested build byte-for-byte. No new in-game runs were performed during this sign-off-only finalization. The verified native results are: **61 passing group executions / 54 distinct named groups**, including seven repeated loadout groups:
 
 | Suite | Passing groups |
 |---|---:|
@@ -77,9 +81,9 @@ Historical branch tests and the older 39 combined-group executions remain supple
 - Serialization is deliberately incomplete: no full native HP/injury/affliction/opaque-unit-state restoration. Removing Crystal Heart preserves a live permanent injury, but reconstructing the actor does not serialize that injury. Final captures and combat attribution are partial; native combat text can remain over the post-field. Summons/owner changes are distinguished from starting teams.
 - Table exhaustion/compaction, arbitrary mod combinations, campaigns/multiplayer, every camera/zoom, sustained physical drag and exhaustive Unicode/IME behavior are not accepted. This does not claim the complete original Sandbox feature set.
 - The user reports prior maintainer agreement to review this work. No new issue/contact was made; please confirm that prior discussion satisfies the issue-first guideline.
-- Every commit still needs the contributor's explicit acceptance of CONTRIBUTING.md terms and sign-off before submission. Configured Git identity is not acceptance. No sign-off has been added and no PR has been opened.
+- The contributor explicitly accepted the current CONTRIBUTING.md terms and confirmed the right to submit these changes on 2026-11-16. All seven commits carry `Signed-off-by: Chazammm <138124106+Chazammm@users.noreply.github.com>`; the configured identity was verified against the connected GitHub username/account ID. Sign-off changed commit metadata only.
 
 - [x] Intended base is `dev`, not `main`.
-- [ ] Every commit is signed off, agreeing to CONTRIBUTING.md. **Pending contributor decision; do not submit yet.**
+- [x] Every commit is signed off, agreeing to CONTRIBUTING.md, with the contributor's explicit authorization.
 - [x] Tested in game on Windows CoE5 5.43 x64; Mac untested.
 - [x] Change lines are in `.github/DEV_NOTES.md`.
