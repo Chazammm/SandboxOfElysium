@@ -1,5 +1,5 @@
 -- Explicit isolated native regression. This does not simulate battle outcomes.
--- Request: mode=final; optional commander/enemy/terrain/multiple_unique;
+-- Request: mode=final; optional commander/enemy/terrain (0 when absent)/multiple_unique;
 -- require_created_in_fight=1 requires a surviving newly-created combat actor.
 local api=coe5
 local request=api.readIni('request')
@@ -30,7 +30,7 @@ end
 assert(type(api.testFieldFinalState)=='function' and type(api.inspectTestFieldFinalUnit)=='function','final API unavailable')
 run('capture_and_final_readonly_cleanup',function()
     local spec={commander=tonumber(q.commander) or 13,enemies={{tonumber(q.enemy) or 953,1}}}
-    if q.terrain then spec.terrain=assert(tonumber(q.terrain))end
+    spec.terrain=q.terrain and assert(tonumber(q.terrain)) or 0
     if tonumber(q.multiple_unique)==1 then spec.allowMultipleUnique=true end
     if q.friend then spec.friends={{assert(tonumber(q.friend)),1}}end
     local opened,ids=api.openTestField(spec);assert(opened,tostring(ids))

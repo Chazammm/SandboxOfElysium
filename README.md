@@ -2,7 +2,7 @@
 
 An experimental Lua sandbox for **Conquest of Elysium 5**. Open **Sandbox** from the main menu, prepare two armies, then fight using the game's native battle AI.
 
-**Current development version: `0.1.0+editor.8`.** See [Installation and testing](INSTALLATION.md). The editor requires additional APIs from a **separate experimental CoE5 Script Extender**. Stock upstream CoE5SE, including the examined 3.4.4 build, does not provide the complete editor contract. This repository contains no Extender DLL, game files or third-party mod files. Its source update does not replace the older 0.1.0 prototype package.
+**Current development version: `0.1.0+editor.8`.** See [Installation and testing](INSTALLATION.md). The editor needs **CoE5SE's [dev build 3.4.4.1](https://github.com/musical-pianist/coe5se/releases/tag/dev-build) or later**, which holds its test field calls (CoE5SE pull request #2). CoE5SE 3.4.4 and earlier do not have them. On Mac, more than one copy of a unique unit and the item Inspect card are not available yet. This repository contains no Extender DLL, game files or third-party mod files. Its source update does not replace the older 0.1.0 prototype package.
 
 All maintained documentation, interface text and future GitHub contributions use English. Historical test results remain version-specific; they are not evidence that a later build passed the same tests.
 

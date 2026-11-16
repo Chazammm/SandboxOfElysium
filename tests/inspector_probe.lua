@@ -1,5 +1,16 @@
 -- Explicit private process probe; never enabled by a normal BAT launch.
 local api=coe5
+-- coe5.setTestFieldSpells became part of coe5.setTestFieldConfiguration (CoE5SE pull request #2):
+-- this keeps the unit's own items and school levels and sets only the two spell lists.
+local function setSpells(unit,state)
+    local loadout,why=api.testFieldLoadoutState(unit)
+    if not loadout then return false,why end
+    local items={}
+    for i=1,20 do local slot=loadout.items[i];items[i]=slot and slot.id or -1 end
+    local schools={}
+    for _,school in ipairs(loadout.schools) do schools[#schools+1]={school.path,school.base} end
+    return api.setTestFieldConfiguration(unit,{items=items,schools=schools,known=state.known,memorized=state.memorized})
+end
 local request=api.readIni('request');if not request or not request.run then return end
 local mode=request.run.mode
 local M=require('sandbox.model');local C=require('sandbox.catalog');local R=require('sandbox.runtime');local D=require('sandbox.diagnostics')
@@ -31,7 +42,7 @@ if mode=='baseline' then
         for _,change in ipairs({{6,268},{6,267},{4,268},{4,266}})do api.memorizeSpell(r.live[valid.units[change[1]].id],change[2])end
         spellState('after_raw_edit',r,valid.units[4]);spellState('other_instance_after',r,valid.units[5])
         local unit=r.live[valid.units[4].id]
-        local accepted,reason=api.setTestFieldSpells(unit,{known=ids(s.units[4].baseline.known),memorized=ids(s.units[4].spells)})
+        local accepted,reason=setSpells(unit,{known=ids(s.units[4].baseline.known),memorized=ids(s.units[4].spells)})
         results.bulk_refusal={accepted=accepted and 1 or 0,reason=tostring(reason)}
         assert(not accepted and reason=='memorize_limit','old bulk setter did not reject the ten-spell set')
         for _,i in ipairs({4,6})do valid.units[i].spells=r:spellList(r.live[valid.units[i].id],'unitMemorizedSpell',29);assert(#valid.units[i].spells==10)end

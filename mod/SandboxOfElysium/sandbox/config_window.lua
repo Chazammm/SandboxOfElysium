@@ -110,7 +110,7 @@ function W.drawCatalog(self,p)
     for row=1,5 do local index=((self.itemPage or 1)-1)*5+row;local item=values[index];local y=251-row*36
         if item then
             ui.drawRect(p+8,y,284,34,0.13,0.17,0.20,0.98)
-            local drawn=type(ui.drawItemIconFit)=='function' and ui.drawItemIconFit(p+11,y+3,32,28,item.id)
+            local drawn=type(ui.drawItemSprite)=='function' and ui.drawItemSprite(p+11,y+3,32,28,item.id)
             if not drawn then text(self,p+20,y+10,12,'?')end
             text(self,p+50,y+21,10,trim(item.name,34))
             text(self,p+50,y+6,9,'#'..item.id..' '..(L.slotNames[item.slot] or '?')..(item.origin and item.origin.modded and ' [Mod]' or ''))
@@ -229,7 +229,7 @@ function W.drawSlots(self,u,state,w)
     for i=1,perPage do local slot=slots[(w.slotPage-1)*perPage+i];local y=top-132-(i-1)*42
         if slot and y>w.y+62 then
             local item=slot.id>=0 and self.catalog.byItemId[slot.id]
-            if item and type(self.api.ui.drawItemIconFit)=='function' then self.api.ui.drawItemIconFit(x+12,y+4,28,28,item.id)end
+            if item and type(self.api.ui.drawItemSprite)=='function' then self.api.ui.drawItemSprite(x+12,y+4,28,28,item.id)end
             text(self,x+45,y+24,10,'#'..(slot.position+1)..' '..(L.slotNames[slot.slotType] or 'Unavailable'))
             text(self,x+45,y+9,10,trim(slot.name or '(empty)',math.floor((w.w-165)/6))..(slot.cursed and ' [cursed]' or ''))
             if item then

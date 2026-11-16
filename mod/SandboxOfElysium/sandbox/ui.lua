@@ -452,7 +452,7 @@ function U:draw()
                     local color=M.colors[self.scenario.colors[entry.team]]
                     ui.drawRect(x-size/2,y-size/2,w-1,h-1,color[2],color[3],color[4],0.72)
                 end
-                if type(ui.drawMonsterIconFit)=='function' then ui.drawMonsterIconFit(x-size/2+1,y-size/2+1,w-2,h-2,entry.monster) end
+                if type(ui.drawMonsterSprite)=='function' then ui.drawMonsterSprite(x-size/2+1,y-size/2+1,w-2,h-2,entry.monster) end
             end
         end
     end
@@ -571,7 +571,7 @@ function U:draw()
         if item then
             ui.drawRect(p+8,y,284,34,0.13,0.17,0.20,0.98)
             ui.drawRect(p+10,y+2,34,30,0.065,0.085,0.10,1)
-            local drawn=type(ui.drawMonsterIconFit)=='function' and ui.drawMonsterIconFit(p+11,y+3,32,28,item.id)
+            local drawn=type(ui.drawMonsterSprite)=='function' and ui.drawMonsterSprite(p+11,y+3,32,28,item.id)
             if not drawn then ui.drawText(p+20,y+10,12,'?',0.65,0.7,0.75,1) end
             ui.drawText(p+50,y+20,10,Catalog.textLimit(item.name,29,'...'),1,0.95,0.85,1)
             ui.drawText(p+50,y+6,9,'#'..item.id..' | A '..M.count(self.scenario,1,item.id)..' / B '..M.count(self.scenario,2,item.id),0.7,0.75,0.8,1)
@@ -580,7 +580,7 @@ function U:draw()
     end
     if #self.filtered==0 then ui.drawText(p+18,208,12,'No matching units. Clear search or filter.',0.95,0.85,0.65,1) end
     self:button('prev','<',p+8,42,40,25);self:button('next','>',p+252,42,40,25)
-    ui.drawText(p+65,50,11,self.page..' / '..math.max(1,math.ceil(#self.filtered/5))..(type(ui.drawMonsterIconFit)=='function' and '' or ' | icon API missing'),0.8,0.8,0.8,1)
+    ui.drawText(p+65,50,11,self.page..' / '..math.max(1,math.ceil(#self.filtered/5))..(type(ui.drawMonsterSprite)=='function' and '' or ' | icon API missing'),0.8,0.8,0.8,1)
     end
     if self.context then
         local x,y=math.max(5,math.min(p-140,self.context.px)),math.max(194,math.min(H-45,self.context.py))

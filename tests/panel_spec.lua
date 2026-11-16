@@ -29,7 +29,7 @@ local function fixture()
     api.testFieldPointerButtons=function()return state.nativeButtons end
     api.setTestFieldTextFocus=function(on)state.focused=on;return true end
     api.takeTestFieldTextEvents=function()local e=state.events;state.events={};return {events=e,focused=state.focused}end
-    api.ui={drawRect=function()end,drawText=function(...)state.panels[#state.panels+1]={...}end,drawMonsterIconFit=function()return true end,drawItemIconFit=function()return true end}
+    api.ui={drawRect=function()end,drawText=function(...)state.panels[#state.panels+1]={...}end,drawMonsterSprite=function()return true end,drawItemSprite=function()return true end}
     local s=M.new();local a=M.add(s,13,'Caster',1,4,3);local b=M.add(s,13,'Caster',2,20,3)
     local native={unit=51,generation=7,complete=true,valid=true,items={},known={1},memorized={1},
         schools={{path=39,name='Druidism',base=2,templateBase=1,bonus=1,level=3,allowance=4},{path=70,name='Mod school',base=1,templateBase=1,bonus=0,level=1,allowance=2}}}
