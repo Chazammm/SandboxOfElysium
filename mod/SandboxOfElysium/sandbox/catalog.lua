@@ -115,7 +115,7 @@ function C.read(api)
         if name and name~='' then local t={id=i,name=name,batmap=api.get('terrain',i,'batmap')};c.terrains[#c.terrains+1]=t;c.terrainById[i]=t end
     end
     for id in pairs(c.testFieldTerrains) do
-        if not c.terrainById[id] or c.terrainById[id].name~=M.terrainNames[id] then c.testFieldTerrains[id]=nil end
+        if not c.terrainById[id] or c.terrainById[id].name~=M.terrainNames[id] or not M.terrainCapabilityAvailable(api,id) then c.testFieldTerrains[id]=nil end
     end
     return c
 end

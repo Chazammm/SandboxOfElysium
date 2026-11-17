@@ -1,5 +1,7 @@
 # SandboxOfElysium: API findings for musical_pianist
 
+Current editor.13 follow-up: `battleViewport=1` supplies the native usable rectangle/Fit/full pan extent, and `structureProvenance=1` supplies constructor-proven native fortifications separately from army actors. See [contract, exact build and acceptance](TEST-ZOOM-FORTIFICATION-2026-11-17.md). The experimental Extender proposal is `VIEWPORT-STRUCTURES-EXPERIMENT-2026-11-17.md` in its separate repository; this mod does not include its DLL or alter submitted PR #2.
+
 ## 2026-11-17 local editor.12 experiment
 
 Current upstream dev9d74ae4 (3.5.0) was checked. Separate source adds permanent owned retirement/current-life diagnostics, `setTestFieldMultipleUnique`, `testFieldZoom`/`setTestFieldZoom`, WAIT-only `testFieldPointerWheel`, and the explicit per-actor `clearHeldItems` configuration mode. These are outside the submitted PR. [Contracts, reproduction, tests and platform limits](TEST-EDITOR-CONTROLS-2026-11-17.md). No DLL is bundled.

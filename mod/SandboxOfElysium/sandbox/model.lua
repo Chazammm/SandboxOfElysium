@@ -37,7 +37,17 @@ function M.validLabel(label)
 end
 -- Identity bindings observed in the loaded vanilla terrain table. Availability
 -- still comes from the separate extender's verified capability list.
-M.terrainNames={[0]='Plain',[2]='Forest',[12]='Mountains',[107]='Swamp',[115]='Jungle',[117]='Desert',[5]='Farm',[18]='Village',[70]='Hoburg Village',[98]='Oasis',[109]='Tent Village'}
+M.terrainNames={[1]='Fortified Hoburg',[0]='Plain',[2]='Forest',[12]='Mountains',[107]='Swamp',[115]='Jungle',[117]='Desert',[5]='Farm',[18]='Village',[70]='Hoburg Village',[98]='Oasis',[109]='Tent Village'}
+-- Preset capability requirements augment exact native terrain identity.
+-- They never classify individual structures; that comes from native provenance.
+M.terrainRequirements={[1]={structureProvenance=1}}
+function M.terrainCapabilityAvailable(api,id)
+    local requirements=M.terrainRequirements[id];if not requirements then return true end
+    if type(api.testFieldEditorCapabilities)~='function'then return false end
+    local ok,caps=pcall(api.testFieldEditorCapabilities);if not ok or type(caps)~='table'then return false end
+    for name,version in pairs(requirements)do if caps[name]~=version then return false end end
+    return true
+end
 function M.copy(value)
     if type(value) ~= 'table' then return value end
     local out = {}; for k,v in pairs(value) do out[k] = M.copy(v) end; return out

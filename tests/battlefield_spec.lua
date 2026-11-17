@@ -86,6 +86,15 @@ test('final snapshot uses full native footprint and actual owner, includes summo
     local p=F.prepare(snapshot());assert(p.complete and #p.rows==2 and #p.actors==1 and p.teamA==0 and p.teamB==1 and p.offField==1 and p.dead==1)
     assert(F.at(p,6,6).native==17 and not F.at(p,2,2) and not F.at(p,7,6))
 end)
+test('proven structures render separately and never inflate army, dead or off-field counters',function()
+    local s=snapshot();s.classificationVersion=1
+    local structure={unit=23,kind='structure',creationSource='native_gate_replacement',provenanceVerified=true,alive=true,hp=25,monster=1436,owner=24,anchorCount=1,anchors={{x=12,y=9}},width=1,height=2,occupied={{x=12,y=9},{x=12,y=10}}}
+    s.units[#s.units+1]=structure;local plan=F.prepare(s);assert(plan.complete and plan.byUnit[23] and #plan.actors==1 and plan.teamB==1 and not F.at(plan,12,9))
+    structure.alive=false;structure.hp=0;structure.anchorCount=0;assert(F.prepare(s).dead==1)
+    structure.alive=true;structure.hp=25;assert(F.prepare(s).offField==1)
+    structure.anchorCount=1;structure.provenanceVerified=false;plan=F.prepare(s);assert(not plan.complete and plan.invalid==1 and not plan.byUnit[23])
+end)
+
 test('missing snapshot cells are partial and never displayed at guessed setup positions',function()
     local s=snapshot();table.remove(s.units[1].occupied);local p=F.prepare(s)
     assert(not p.complete and #p.actors==0 and not F.at(p,4,4))

@@ -38,6 +38,29 @@ end
 test('complete 1x1 and 3x3 bijection verified',function()
     local r,s=fixture();assert(I.inspect(r,s,true))
 end)
+local function structureFixture()
+ local r,s,state,calls=fixture();state.classificationVersion=1;state.session=4
+ local gate=row(20,1436,24,20,8,1,2);gate.kind='structure';gate.creationSource='native_gate_replacement';gate.provenanceVerified=true;gate.generation=91;gate.anchorLayer='unit'
+ state.units[#state.units+1]=gate;return r,s,state,calls,gate
+end
+test('constructor-proven native structures stay outside model and team actors',function()
+ local r,s,state=structureFixture();local ok,observed=I.inspect(r,s,true);assert(ok and observed.structures[20] and not observed.used[20] and #s.units==2)
+end)
+test('a gate monster placed as an ordinary actor is still an orphan without a model',function()
+ local r,s,state,calls,gate=structureFixture();gate.kind='actor';local ok,why=I.inspect(r,s,true);assert(not ok and why=='orphaned_native_unit')
+end)
+test('unproven or wrong-generation structures and partial footprints are refused',function()
+ for _,field in ipairs({'provenanceVerified','creationSource','generation','anchorLayer','occupied'})do
+  local r,s,state,calls,gate=structureFixture();gate[field]=field=='occupied' and {} or field=='generation' and 0 or false
+  local ok,why=I.inspect(r,s,true);assert(not ok and why=='native_structure_unverified',field)
+ end
+end)
+test('unexpected structure damage or removal fails rollback verification',function()
+ local r,s,state,calls,gate=structureFixture();local ok,before=I.inspect(r,s,true);assert(ok);gate.hp=gate.hp-1
+ local ok,why=I.inspect(r,s,true,before);assert(not ok and why=='native_structure_changed');state.units[3]=nil
+ local ok,why=I.inspect(r,s,true,before);assert(not ok and why=='native_structure_missing')
+end)
+
 test('aliased live handle refused before any mutation',function()
     local r,s,_,calls=fixture();r.live[2]=11
     local ok=r:add(s,13,1,8,8);assert(not ok and r.blocked and calls.add==0 and calls.remove==0)

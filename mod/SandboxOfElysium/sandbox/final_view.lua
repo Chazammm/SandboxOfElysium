@@ -17,11 +17,11 @@ function F.prepare(snapshot)
     plan.source=snapshot.source;plan.snapshot=snapshot
     plan.complete=truth(snapshot.complete) and #(snapshot.issues or {})==0
     for _,row in ipairs(snapshot.units or {}) do
-        if not truth(row.alive) or not row.hp or row.hp<=0 then plan.dead=plan.dead+1
-        elseif row.anchorCount==0 then plan.offField=plan.offField+1
+        if not truth(row.alive) or not row.hp or row.hp<=0 then if row.kind=='actor'then plan.dead=plan.dead+1 end
+        elseif row.anchorCount==0 then if row.kind=='actor'then plan.offField=plan.offField+1 end
         else
             local anchor=row.anchors and row.anchors[1]
-            local valid=integer(row.unit) and row.unit>=0 and integer(row.monster) and row.monster>=0 and (row.kind=='actor' or row.kind=='terrain') and
+            local valid=integer(row.unit) and row.unit>=0 and integer(row.monster) and row.monster>=0 and (row.kind=='actor' or row.kind=='terrain' or (row.kind=='structure' and snapshot.classificationVersion==1 and truth(row.provenanceVerified) and row.creationSource=='native_gate_replacement')) and
                 row.anchorCount==1 and row.anchors and #row.anchors==1 and anchor and integer(anchor.x) and integer(anchor.y) and
                 integer(row.width) and integer(row.height) and row.width>=1 and row.width<=3 and row.height>=1 and row.height<=3 and
                 (row.kind=='terrain' or #(row.occupied or {})==row.width*row.height)
@@ -45,7 +45,7 @@ function F.prepare(snapshot)
         end
     end
     table.sort(plan.rows,function(a,b)
-        if a.kind~=b.kind then return a.kind=='terrain' end
+        if a.kind~=b.kind then local order={terrain=1,structure=2,actor=3};return order[a.kind]<order[b.kind] end
         return a.y==b.y and a.x<b.x or a.y>b.y
     end)
     return plan

@@ -31,6 +31,7 @@ function U.new(api)
     self.waitHook=api.wrap('BATTLE_WAIT',function(next,b,m)
         local id=next(b,m)
         if not self.inNativeMenu and (self.phase=='prepare' or self.phase=='after') then
+            self:applyRequestedViewport()
             self:wheelZoom()
             -- Native drawing is read only even before the original DRAW hook.
             -- Mutate in WAIT, then discard input until a fresh map is drawn.
@@ -141,6 +142,7 @@ function U:setupRows()
         {locked and 0 or 15,'Multiple unique units: '..(s.allowMultipleUnique and 'On' or 'Off')..(self:multipleUniqueAvailable() and '' or ' (API unavailable)')},
         {locked and 0 or 17,'Field size: '..Battlefields.sizeLabel(s)..change},
         {locked and 0 or 18,'New units: '..(s.startingItems==false and 'omit starting equipment' or 'normal starting equipment')..change}}
+    if s.terrain==1 then rows[#rows+1]={0,'Siege: Team A attacks; Team B defends. Native structures stay outside the army roster.'}end
     if self.message and self.message~='' then rows[#rows+1]={0,self.message}end
     if self.runtime.blocked then
         rows[#rows+1]={0,'Editing locked. Saved setup preserved; export diagnostics before recovery.'}
@@ -181,7 +183,7 @@ function U:setup()
             self:prepare(true)
         elseif id==4 then self:load()
         elseif id==5 then self:terrainBrowser()
-        elseif id==6 then self:notice('Verified neutral land fields only; other template contexts remain unverified. Size choices require the release-next API and are minimums. '..(Loadout.available(self.api) and 'Equipment and existing base schools up to level 3 are editable. New schools and eye/heart implants are unavailable. ' or 'Equipment and base-school editing need the newer experimental Extender. ')..'Modded Units means a mod-defined unit; modified vanilla units are not identified by that getter. Health/XP/injury-bit restoration needs the release-next API and remains a subset: effects, poison/bleeding and opaque native state are not saved. Complete battle telemetry is unavailable.')
+        elseif id==6 then self:notice('Twelve verified land contexts, including Fortified Hoburg; other native contexts remain unavailable. Size choices require the release-next API and are minimums. '..(Loadout.available(self.api) and 'Equipment and existing base schools up to level 3 are editable. New schools and eye/heart implants are unavailable. ' or 'Equipment and base-school editing need the newer experimental Extender. ')..'Modded Units means a mod-defined unit; modified vanilla units are not identified by that getter. Health/XP/injury-bit restoration needs the release-next API and remains a subset: effects, poison/bleeding and opaque native state are not saved. Complete battle telemetry is unavailable.')
         elseif id==7 then self:smallCheck()
         elseif id==9 and self.snapshot then self.scenario=M.copy(self.snapshot);self.message='Pre-battle setup selected; native restoration checked on Prepare'
         elseif id==10 then self:save()
@@ -335,6 +337,79 @@ function U:zoomAvailable()
     local ok,caps=pcall(self.api.testFieldEditorCapabilities)
     return ok and type(caps)=='table' and (caps.battleZoom==1 or caps.battleZoom==true)
 end
+function U:usableViewport()
+    return {x=0,y=38,width=self.api.get('screenW')-310,height=self.api.get('screenH')-76}
+end
+function U:viewportAvailable()
+    for _,name in ipairs({'setTestFieldViewport','testFieldViewport','fitTestFieldViewport'})do if type(self.api[name])~='function'then return false end end
+    if type(self.api.testFieldEditorCapabilities)~='function'then return false end
+    local ok,caps=pcall(self.api.testFieldEditorCapabilities)
+    return ok and type(caps)=='table'and(caps.battleViewport==1 or caps.battleViewport==true)
+end
+function U:viewportState()
+    if not self:viewportAvailable()then return nil,'Native Fit and usable-map viewport need the updated experimental API.'end
+    local called,state,reason=pcall(self.api.testFieldViewport)
+    if not called or type(state)~='table'then return nil,tostring(reason or(not called and state)or'Native viewport readback is unavailable.')end
+    if state.version~=1 then return nil,'Native viewport version is unsupported.'end
+    for _,key in ipairs({'x','y','width','height','cellSize','originX','originY','minOriginX','maxOriginX','minOriginY','maxOriginY'})do
+        local value=state[key]
+        if type(value)~='number'or value~=value or value==math.huge or value==-math.huge then return nil,'Native viewport readback is incomplete.'end
+    end
+    if state.width<=0 or state.height<=0 or state.cellSize<=0 or state.minOriginX>state.maxOriginX or state.minOriginY>state.maxOriginY or
+        type(state.fitsX)~='boolean'or type(state.fitsY)~='boolean'or type(state.fits)~='boolean'then return nil,'Native viewport readback is invalid.'end
+    return state
+end
+function U:viewInputBarrier()
+    self.releaseBarrier=true;self.dragBlocked=true;self.lastCell=nil;self.dragOrigin=nil;self.zoomAwaitingDraw=true
+end
+function U:requestFit()
+    if self.phase~='prepare'or not self.native or not self.runtime.open or self.runtime.blocked then return false end
+    if not self:viewportAvailable()then self:notice('Native Fit is unavailable. Use the updated experimental Extender; no fitted view was substituted.');return false end
+    self.requestedFit=true;self.requestedZoom=nil;self.requestedZoomAnchor=nil
+    self.releaseBarrier=true;self.dragBlocked=true;self.lastCell=nil;self.dragOrigin=nil
+    return true
+end
+function U:applyRequestedViewport()
+    if self.phase~='prepare'or self.inNativeMenu or not self.native or not self.runtime or not self.runtime.open or self.runtime.blocked or
+        self.zoomAwaitingDraw or not self:viewportAvailable()then return end
+    local rect=self:usableViewport();local generation=self.runtime.generation
+    local key=table.concat({tostring(generation),rect.x,rect.y,rect.width,rect.height},':')
+    if self.viewportAttemptKey~=key then
+        self.viewportAttemptKey=key;self.viewportReady=false;self:viewInputBarrier()
+        local called,accepted,reason=pcall(self.api.setTestFieldViewport,rect)
+        local observed,why
+        if called and accepted==true then observed,why=self:viewportState()end
+        local matched=observed and observed.x==rect.x and observed.y==rect.y and observed.width==rect.width and observed.height==rect.height
+        if not matched then
+            self.requestedFit=nil;self.requestedZoom=nil;self.requestedZoomAnchor=nil
+            self.message='Native viewport could not be verified: '..tostring(why or reason or(not called and accepted)or'usable rectangle mismatch')
+            self.diag:record('battle_viewport',{result='refused or unverified',reason=self.message});self:notice(self.message);return
+        end
+        self.viewportReady=true
+        if self.zoom==nil and self.requestedZoom==nil then self.zoomGeneration=generation end
+        self.diag:record('battle_viewport',{result='native readback verified',x=rect.x,y=rect.y,width=rect.width,height=rect.height,
+            cell_size=observed.cellSize,origin_x=observed.originX,origin_y=observed.originY,field_generation=generation or'unknown'})
+        return
+    end
+    if not self.requestedFit then return end
+    self.requestedFit=nil
+    if not self.viewportReady then self:notice('Native usable viewport is unverified. Fit was not applied.');return end
+    self:viewInputBarrier()
+    self.zoomGeneration=generation
+    local called,accepted,reason=pcall(self.api.fitTestFieldViewport)
+    local viewport,why;local zoom
+    if called and accepted==true then viewport,why=self:viewportState();if viewport then zoom,why=self:zoomState()end end
+    if not viewport or not zoom then
+        self.message='Native Fit could not be verified: '..tostring(why or reason or(not called and accepted)or'fit refused')
+        self.diag:record('battle_viewport_fit',{result='refused or unverified',reason=self.message});self:notice(self.message);return
+    end
+    self.zoom=zoom.zoom;self.zoomGeneration=generation
+    self.message=('Native Fit: %d%%. '):format(math.floor(zoom.zoom*100+0.5))..
+        (viewport.fits and'Entire field fits the usable map.'or'Field exceeds the usable map at this limit; pan with arrow keys or middle-drag.')
+    self.diag:record('battle_viewport_fit',{result='native readback verified',zoom=zoom.zoom,cell_size=viewport.cellSize,
+        fits=viewport.fits and 1 or 0,fits_x=viewport.fitsX and 1 or 0,fits_y=viewport.fitsY and 1 or 0,
+        origin_x=viewport.originX,origin_y=viewport.originY,field_generation=generation or'unknown'})
+end
 function U:zoomState()
     if not self:zoomAvailable() then return nil,'Native battlefield zoom needs the updated experimental API.' end
     local ok,state,why=pcall(self.api.testFieldZoom)
@@ -375,6 +450,7 @@ end
 function U:applyRequestedZoom()
     if self.phase~='prepare' or self.inNativeMenu or not self.native or not self.runtime or not self.runtime.open or self.runtime.blocked or not self:zoomAvailable() then return end
     if self.zoomAwaitingDraw then return end
+    if self:viewportAvailable()and not self.viewportReady then return end
     local generation=self.runtime.generation
     if generation~=nil and self.zoomGeneration~=generation then
         self.zoomGeneration=generation
@@ -600,7 +676,8 @@ function U:ownsPointer(x,y)
     local W,H=self.api.get('screenW'),self.api.get('screenH')
     if self.phase=='after' then return y>=H-38 or y<106 end
     if ConfigWindow.owns(self,x,y)then return true end
-    return y>=H-38 or y<38 or x>=W-310
+    local rect=self:usableViewport()
+    return x<rect.x or y<rect.y or x>=rect.x+rect.width or y>=rect.y+rect.height
 end
 function U:draw()
     local api,ui=self.api,self.api.ui;local W,H=api.get('screenW'),api.get('screenH');local p=W-300
@@ -672,7 +749,12 @@ function U:draw()
             end
             if cx and cy then
                 local color=c.status=='clear' and {0.15,0.75,0.40} or c.status=='out_of_bounds' and {0.95,0.15,0.72} or c.status=='unknown' and {0.92,0.65,0.15} or {0.95,0.18,0.12}
-                ui.drawRect(cx-size/2+1,cy-size/2+1,size-2,size-2,color[1],color[2],color[3],0.38)
+                local left,bottom,w,h=cx-size/2+1,cy-size/2+1,size-2,size-2
+                if self.native then
+                    local rect=self:usableViewport();local right,top=math.min(left+w,rect.x+rect.width),math.min(bottom+h,rect.y+rect.height)
+                    left,bottom=math.max(left,rect.x),math.max(bottom,rect.y);w,h=right-left,top-bottom
+                end
+                if w>0 and h>0 then ui.drawRect(left,bottom,w,h,color[1],color[2],color[3],0.38)end
             end
         end
     end
@@ -686,14 +768,19 @@ function U:draw()
     if self.phase=='prepare' and self.native then
         local zoom=self:zoomState()
         if zoom then
-            self:button('zoomout','Zoom -',536,H-32,57,26,nil,11)
-            ui.drawText(597,H-24,10,('%d%%'):format(math.floor(zoom.zoom*100+0.5)),0.90,0.92,0.85,1)
-            self:button('zoomin','Zoom +',641,H-32,57,26,nil,11)
+            self:button('zoomout','Zoom -',536,H-32,40,26,nil,9)
+            ui.drawText(581,H-24,10,('%d%%'):format(math.floor(zoom.zoom*100+0.5)),0.90,0.92,0.85,1)
+            self:button('zoomin','Zoom +',618,H-32,40,26,nil,9)
+            self:button('fit',self:viewportAvailable()and'Fit'or'Fit N/A',662,H-32,36,26,nil,self:viewportAvailable()and 11 or 8)
         else ui.drawText(539,H-24,10,'Native zoom unavailable',0.65,0.70,0.70,1) end
     end
     self:button('back',self.moving and 'Cancel move' or 'Back',W-94,H-32,84,26)
     ui.drawRect(0,0,W,38,0.035,0.045,0.055,0.98)
-    ui.drawText(10,22,10,self.phase=='after' and 'Final snapshot is read only. Right-click a captured survivor for native Inspect where available.' or self.selectedItem and ('ITEM: '..Catalog.textLimit(self.selectedItem.name,42)..' - right-click a unit. Select again or Cancel item to clear.') or self.moving and 'MOVE: right-click destination; Cancel move keeps the original.' or (self.selected==nil or self.catalogTab=='items') and 'Right-click a unit: Inspect / Edit / Move / Copy / Delete.' or 'Right-click places. Existing unit: Inspect / Edit / Move / Copy / Delete.',1,1,0.9,1)
+    local hint=self.phase=='after' and 'Final snapshot is read only. Right-click a captured survivor for native Inspect where available.' or self.selectedItem and ('ITEM: '..Catalog.textLimit(self.selectedItem.name,42)..' - right-click a unit. Select again or Cancel item to clear.') or self.moving and 'MOVE: right-click destination; Cancel move keeps the original.' or (self.selected==nil or self.catalogTab=='items') and 'Right-click a unit: Inspect / Edit / Move / Copy / Delete.' or 'Right-click places. Existing unit: Inspect / Edit / Move / Copy / Delete.'
+    if self.phase=='prepare'and self.native and self:viewportAvailable()then
+        hint=Catalog.textLimit(hint,math.max(35,math.floor((W-20)/6)-46),'...')..' Pan: arrows / middle-drag; Fit: whole field.'
+    end
+    ui.drawText(10,22,10,hint,1,1,0.9,1)
     ui.drawText(10,5,10,self.message:sub(1,112),0.95,0.76,0.45,1)
     if self.phase=='after' then
         ui.drawRect(0,38,W,68,0.035,0.045,0.055,0.95)
@@ -1146,6 +1233,7 @@ function U:dispatch(action)
     elseif action=='unique' then self:toggleMultipleUnique()
     elseif action=='zoomout' then self:requestZoom(-1)
     elseif action=='zoomin' then self:requestZoom(1)
+    elseif action=='fit' then self:requestFit()
     elseif action=='startingitems' then self:toggleStartingItems()
     elseif action=='clearitems' then self:clearAllHeldItems()
     elseif action=='filter' then
@@ -1168,7 +1256,7 @@ function U:dispatch(action)
             self.scenario=candidate
         end
         self.context=nil;self.moving=nil;self.copyTemplate=nil;self.dragBlocked=true
-        self.message='Battlefield is empty. Place units on either team; a battle needs at least one unit per team.'
+        self.message=self.scenario.terrain==1 and 'No army units remain. Native fort structures stay; place either team. A battle needs both teams.' or 'Battlefield is empty. Place units on either team; a battle needs at least one unit per team.'
         self.diag:record('clear',{units=#self.scenario.units,team_a=M.count(self.scenario,1),team_b=M.count(self.scenario,2)})
     end
     return self.runtime.open

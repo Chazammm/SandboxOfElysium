@@ -358,6 +358,7 @@ function R:build(s,nativeDeployment)
         local ok,ids=pcall(self.api.testFieldTerrains)
         if ok and type(ids)=='table' then for _,id in ipairs(ids) do if id==s.terrain then supported=true end end end
     end
+    if not M.terrainCapabilityAvailable(self.api,s.terrain)then return reject('This fortified preset requires the matching structure-provenance API. Current setup kept.')end
     if s.terrain~=0 and not supported then return reject((M.terrainNames[s.terrain] or 'This terrain')..' requires the matching experimental terrain API. Current field kept.') end
     if not s.units then return reject('Scenario unit list is missing. Current field kept.') end
     if (M.count(s,1)==0 or M.count(s,2)==0) and not self:emptyEditorAvailable() then
@@ -418,6 +419,7 @@ function R:_build(s,nativeDeployment)
         local ok,ids=pcall(self.api.testFieldTerrains)
         if ok and type(ids)=='table' then for _,id in ipairs(ids) do if id==s.terrain then supported=true end end end
     end
+    if not M.terrainCapabilityAvailable(self.api,s.terrain)then return false,'This fortified preset requires the matching structure-provenance API. Current setup kept.'end
     if s.terrain~=0 and not supported then return false,(M.terrainNames[s.terrain] or 'This terrain')..' requires the matching experimental terrain API. Current field kept.' end
     local closed,closeWhy=self:close()
     if not closed then return false,'Previous test field cleanup failed: '..tostring(closeWhy)..'. Scenario preserved; Export Diagnostics and restart the isolated game.' end

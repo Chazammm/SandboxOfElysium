@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased local development — editor.13, 2026-11-17
+
+- Fit the actual playable field into the usable editor area, preserving aspect ratio and native pointer mapping. Add Fit, 10–200% native zoom and full reachable pan bounds; keep wheel/menu priority and existing formation controls.
+- Enable Fortified Hoburg only with the matching native structure-provenance contract. Preserve native walls/gate, actual siege movement/battle, and exact Save/Load/Reset/Rematch. Structures remain separate from army counters and editing.
+- Use native strict full-footprint passability for proven map scenery in a verified siege; keep unknown objects and actor collisions blocked. Preserve structures across placement/configuration rollback and fail closed on provenance/cleanup failure.
+- Add focused offline/native regressions and [exact version-specific evidence](docs/TEST-ZOOM-FORTIFICATION-2026-11-17.md). Separate Extender source, no binary bundling, PR modification, publication or release.
+
 ## Unreleased local development â€” editor.12, 2026-11-17
 
 - Fix rejected/deleted regenerative actors with verified permanent native retirement in the separate experiment; preserve recovery and lock on unverified cleanup.

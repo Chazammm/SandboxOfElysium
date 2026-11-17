@@ -1,5 +1,7 @@
 # Editor.11 — native vanilla presets and local checkpoints, 2026-11-16
 
+**2026-11-17 follow-up:** Fortified Hoburg and the new viewport contract are now separately accepted in editor.13. See [the current zoom/fortification report](TEST-ZOOM-FORTIFICATION-2026-11-17.md). Earlier results and blockers below retain their original version boundaries.
+
 This increment adds five verified native stock contexts. It preserves the current editor controls, placement/deletion/rollback implementation, names, item/spell configuration and battlefield-size policy. It does **not** complete all vanilla battle contexts. No release, push, new PR, modification of the submitted PR branch or Extender binary distribution occurred.
 
 ## Source checkpoints and upstream review

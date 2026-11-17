@@ -66,7 +66,7 @@ api.wrap('MAIN_MENU_WAIT',function(next,...)
   local frozen=api.testFieldState();local mapped=0
   for _,zoom in ipairs({0.5,0.75,1,1.5,2})do
    ui.requestedZoom=zoom;frame();frame(nil,function()
-    local value=assert(api.testFieldZoom());local view=assert(api.battleView());out['zoom_'..tostring(zoom)]={zoom=value.zoom,cell=view.cellSize,camera_x=view.cameraX,camera_y=view.cameraY,origin_x=view.originX,origin_y=view.originY,pointer_x=api.get('uiPointerX'),pointer_y=api.get('uiPointerY')};write();assert(math.abs(value.zoom-zoom)<0.0001 and math.abs(view.cellSize-initial.cellSize*zoom)<0.001,('Zoom requested %.3f actual %.3f cell %.3f initial %.3f'):format(zoom,value.zoom,view.cellSize,initial.cellSize))
+    local value=assert(api.testFieldZoom());local view=assert(api.battleView());out['zoom_'..tostring(zoom)]={zoom=value.zoom,cell=view.cellSize,camera_x=view.cameraX,camera_y=view.cameraY,origin_x=view.originX,origin_y=view.originY,pointer_x=api.get('uiPointerX'),pointer_y=api.get('uiPointerY')};write();assert(math.abs(value.zoom-zoom)<0.0001 and math.abs(view.cellSize-(initial.cellSize/initial.zoom)*zoom)<0.001,('Zoom requested %.3f actual %.3f cell %.3f initial %.3f'):format(zoom,value.zoom,view.cellSize,initial.cellSize))
     for x=0,r.width-1 do for y=0,19 do local sx,sy=api.battleCellToScreen(x,y);if sx and sx>=1 and sx<view.screenW-311 and sy>=1 and sy<view.screenH-40 then local cx,cy=api.battleScreenToCell(sx,sy);assert(cx==x and cy==y,'Native projection roundtrip mismatch');mapped=mapped+1;local model=ui:unitAt(x,y);if model then assert(r.live[model.id]==api.battleUnitAt(x,y))end end end end
     assert(equal(frozen,api.testFieldState()),'Zoom mutated the native field')
    end)

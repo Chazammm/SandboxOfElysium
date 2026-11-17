@@ -1,5 +1,9 @@
 # SandboxOfElysium development journal
 
+## 2026-11-17 — editor.13 viewport and first siege
+
+Reproduced the zoom-out lower-edge clipping visibly, added a usable native viewport/Fit/full pan extent, and accepted Fortified Hoburg after constructor-origin tracking separated native structures from editable actors. A second exact-restore refusal was traced to legal native deployment on passable scenery and fixed using strict native passability in verified siege context. Added structure-aware rollback checks, diagnostics and final counters. [Tests, checkpoint pairing and limitations](docs/TEST-ZOOM-FORTIFICATION-2026-11-17.md). No normal-profile edits, binary distribution or submitted-PR changes.
+
 ## 2026-11-17 â€” retain both formation sizing and wheel zoom
 
 The final clarification requests both controls together. Restored map-only wheel zoom with menu/list/text/editor priority while retaining the adjacent formation minus, clamped at one for rows. Discarded UI scroll steps are never replayed as later map zoom. The temporary wheel removal below remains a historical intermediate state. All 192 current offline cases plus syntax pass; the Extender source and submitted PR remain unchanged.

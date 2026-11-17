@@ -194,21 +194,24 @@ function L.configure(r,u,unit,restoring,options)
 end
 function L.change(r,u,edit,action)
     local ready,why=r:ready(r.current);if not ready then return false,why end
+    local verified=type(why)=='table' and {signatures=M.copy(why.signatures or{}),structures=M.copy(why.structures)} or nil
     local before=r:snapshot(r.current)
     local unit=r.live[u.id];local old=M.copy(u);local candidate=M.copy(u)
+    if verified then verified.signatures[unit]=nil end
     local state;state,why=L.read(r,unit);if not state then return false,why end
     if not candidate.equipment then local captured;captured,why=L.capture(r,candidate,state);if not captured then return false,why end end
     local accepted,options;accepted,why,options=edit(candidate,state);if not accepted then return false,why end
     local ok,detail;ok,why,detail=L.configure(r,candidate,unit,false,options)
     if not ok then
         local unchanged=L.matches(r,old,unit)
+        if unchanged and verified then unchanged=r:check(r.current,true,verified) end
         r:failure(action,why,r.current,before,unchanged and 'verified unchanged' or 'unverified')
         if not unchanged or (type(detail)=='table' and detail.rollbackVerified==false) then return r:quarantine(r.current,why,before,{operation=action}) end
         return false,why..'. Previous configuration kept.'
     end
     for k in pairs(u) do u[k]=nil end;for k,v in pairs(candidate) do u[k]=v end
     if r.current then for i,v in ipairs(r.current.units) do if v.id==u.id then r.current.units[i]=u end end end
-    local good,observed,details=r:check(r.current)
+    local good,observed,details=r:check(r.current,true,verified)
     if not good then return r:quarantine(r.current,observed,nil,details) end
     r:accept(r.current,observed)
     if r.diag then r.diag:record(action,{model_id=u.id,native_id=unit,result='native readback verified'}) end

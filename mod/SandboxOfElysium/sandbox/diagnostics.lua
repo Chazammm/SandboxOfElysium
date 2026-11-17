@@ -46,7 +46,7 @@ function D:snapshot(s,runtime)
         observation_phase=runtime.phase or 'prepare',observation_scope=runtime.phase=='after' and 'native state after cleanup; saved model is pre-battle setup' or 'editable native field versus saved model',
         field_generation=runtime.generation or 'unknown',editing_locked=runtime.blocked and 1 or 0,
         recovery_file=runtime.recoveryFile or 'not written or not needed',allow_multiple_unique=s.allowMultipleUnique and 1 or 0,
-        native_query_complete=native.complete==true and 1 or 0,native_rows=#(native.units or {}),native_issues=#(native.issues or {}),
+        native_classification_version=native.classificationVersion,native_session=native.session,native_query_complete=native.complete==true and 1 or 0,native_rows=#(native.units or {}),native_issues=#(native.issues or {}),
         limits='24 model rows; 48 native rows; 256 nonempty raw grid cells; capped export, not complete engine state'},units={},nativeUnits={},cells={}}
     if runtime.open and type(self.api.testFieldEnvironmentState)=='function'then
         local ok,value,why=pcall(self.api.testFieldEnvironmentState)
@@ -119,7 +119,7 @@ function D:snapshot(s,runtime)
         out.units[#out.units+1]=flat(row)
     end
     for i,n in ipairs(native.units or {}) do if i>48 then break end
-        out.nativeUnits[#out.nativeUnits+1]=flat({native_id=n.unit,hp=n.hp,monster=n.monster,owner=n.owner,alive=n.alive,
+        out.nativeUnits[#out.nativeUnits+1]=flat({native_id=n.unit,kind=n.kind,creation_source=n.creationSource,provenance_verified=n.provenanceVerified,generation=n.generation,anchor_layer=n.anchorLayer,hp=n.hp,monster=n.monster,owner=n.owner,alive=n.alive,
             anchor_count=n.anchorCount,anchors=cells(n.anchors),footprint_w=n.width,footprint_h=n.height,occupied=cells(n.occupied),
             model_ids=table.concat(aliases[n.unit] or {},','),world_x=n.worldX,world_y=n.worldY})
     end

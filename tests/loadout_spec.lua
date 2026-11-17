@@ -112,4 +112,19 @@ end)
 test('successful mutation without matching native readback locks editing',function()
     local r=rejection('false_success');assert(r.blocked)
 end)
+test('configuration success and rejection both quarantine an unrelated structure change',function()
+    local read,configure,matches=L.read,L.configure,L.matches
+    for _,accepted in ipairs({false,true})do
+        local u={id=1,baseline={known={}},spells={},items={},equipment={},schools={}};local original=M.copy(u)
+        local r={current={units={u}},live={[1]=41},api={},catalog=c}
+        function r:ready()return true,{signatures={[41]='target',[42]='other'},structures={[71]='proven structure'}}end
+        function r:snapshot()return{preserved=original}end
+        function r:check(_,positions,previous)assert(positions and previous.structures[71]=='proven structure' and previous.signatures[41]==nil and previous.signatures[42]=='other');self.checked=true;return false,'native_structure_changed'end
+        function r:failure()end
+        function r:quarantine(_,why)self.blocked=true;return false,why end
+        L.read=function()return{}end;L.configure=function()return accepted,'incompatible_slot',{rollbackVerified=true}end;L.matches=function()return true end
+        local ok=L.change(r,u,function()return true end,'test_config');assert(not ok and r.checked and r.blocked)
+    end
+    L.read,L.configure,L.matches=read,configure,matches
+end)
 print(count..' offline loadout identity/persistence/recovery contracts passed; no native slot rules or combat simulated')

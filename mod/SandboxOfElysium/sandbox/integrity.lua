@@ -28,7 +28,7 @@ function I.inspect(r,s,positions,previous,configuration)
         local issue=state.issues[1]
         return fail('native_integrity_issue',{issue=issue.code,native_id=issue.unit,x=issue.x,y=issue.y},state)
     end
-    local rows,modelIds,used,signatures={},{},{},{}
+    local rows,modelIds,used,signatures,structures={},{},{},{},{}
     for _,row in ipairs(state.units or {}) do rows[row.unit]=row end
     for _,u in ipairs(s.units or {}) do
         local id=r.live[u.id]
@@ -38,6 +38,7 @@ function I.inspect(r,s,positions,previous,configuration)
         if used[id] then return fail('aliased_native_handle',{model_id=u.id,other_model_id=used[id],native_id=id},state) end
         used[id]=u.id
         local row=rows[id]
+        if row and row.kind and row.kind~='actor' then return fail('model_structure_mismatch',{model_id=u.id,native_id=id,kind=row.kind},state) end
         if not row or not alive(row) or not row.hp or row.hp<=0 then return fail('model_unit_not_alive',{model_id=u.id,native_id=id},state) end
         if row.monster~=u.monster or row.owner~=(u.team==1 and 0 or 24) then
             return fail('native_identity_mismatch',{model_id=u.id,native_id=id,actual_monster=row.monster,actual_owner=row.owner},state)
@@ -82,9 +83,42 @@ function I.inspect(r,s,positions,previous,configuration)
         end
     end
     for _,row in ipairs(state.units or {}) do
-        if alive(row) and not used[row.unit] then return fail('orphaned_native_unit',{native_id=row.unit,monster=row.monster},state) end
+        if alive(row) and not used[row.unit] then
+            -- Only a generation classified at the native constructor boundary
+            -- may be outside the scenario/model bijection. Ownership/name/ID
+            -- alone cannot make an unexplained actor safe.
+            if row.kind~='structure' then return fail('orphaned_native_unit',{native_id=row.unit,monster=row.monster},state) end
+            if state.classificationVersion~=1 or type(state.session)~='number' or state.session<1 or
+                row.provenanceVerified~=true or row.creationSource~='native_gate_replacement' or
+                type(row.generation)~='number' or row.generation<1 or row.anchorLayer~='unit' or
+                row.anchorCount~=1 or #(row.anchors or {})~=1 or row.hp<=0 or
+                (row.owner~=0 and row.owner~=24) or type(row.width)~='number' or type(row.height)~='number' or
+                row.width<1 or row.width>3 or row.height<1 or row.height>3 or row.width%1~=0 or row.height%1~=0 or #(row.occupied or {})~=row.width*row.height then
+                return fail('native_structure_unverified',{native_id=row.unit},state)
+            end
+            local anchor=row.anchors[1];local cells={}
+            if type(anchor.x)~='number' or type(anchor.y)~='number' then return fail('native_structure_footprint',{native_id=row.unit},state) end
+            for _,cell in ipairs(row.occupied)do
+                if type(cell.x)~='number' or type(cell.y)~='number' then return fail('native_structure_footprint',{native_id=row.unit},state) end
+                local key=cell.x..':'..cell.y
+                if cells[key] or cell.x<anchor.x or cell.x>=anchor.x+row.width or cell.y<anchor.y or cell.y>=anchor.y+row.height or
+                    cell.x<0 or cell.y<0 or cell.x>=state.width or cell.y>=state.height then
+                    return fail('native_structure_footprint',{native_id=row.unit},state)
+                end
+                cells[key]=true
+            end
+            local signature=table.concat({state.session,row.generation,row.monster,row.owner,row.hp,anchor.x,anchor.y,row.width,row.height},':')
+            if previous and previous.structures and previous.structures[row.unit]~=signature then
+                return fail('native_structure_changed',{native_id=row.unit},state)
+            end
+            structures[row.unit]=signature
+        end
     end
+    if previous and previous.structures then for id in pairs(previous.structures)do
+        if not structures[id]then return fail('native_structure_missing',{native_id=id},state)end
+    end end
+    for id in pairs(previous and previous.structures or {})do if not structures[id] then return fail('native_structure_changed',{native_id=id},state) end end
     for modelId,id in pairs(r.live) do if not modelIds[modelId] then return fail('orphaned_model_handle',{model_id=modelId,native_id=id},state) end end
-    return true,{native=state,signatures=signatures,used=used,rows=rows}
+    return true,{native=state,signatures=signatures,used=used,rows=rows,structures=structures}
 end
 return I
