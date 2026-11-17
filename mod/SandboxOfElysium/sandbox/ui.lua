@@ -22,7 +22,11 @@ function U.new(api)
     self.diag=Diagnostics.new(api)
     self.drawHook=api.wrap('BATTLE_DRAW',function(next)
         local result=next()
-        if not self.inNativeMenu and (self.phase=='prepare' or self.phase=='after') then
+        if not self.inNativeMenu and self.phase=='fight' then
+            local x=api.get('screenW')/2-85
+            self.buttons={};self:drawLogToggle(x,api.get('screenH')-26,170,22)
+            if self.logMessage then api.ui.drawText(x,api.get('screenH')-42,10,Catalog.textLimit(self.logMessage,math.max(20,math.floor((api.get('screenW')/2-100)/6)),'...'),1,0.75,0.45,1)end
+        elseif not self.inNativeMenu and (self.phase=='prepare' or self.phase=='after') then
             self:draw()
             self.zoomAwaitingDraw=nil
         end
@@ -30,7 +34,11 @@ function U.new(api)
     end)
     self.waitHook=api.wrap('BATTLE_WAIT',function(next,b,m)
         local id=next(b,m)
+        if not self.inNativeMenu and self.phase=='fight'then return self:combatLogWait(id)end
         if not self.inNativeMenu and (self.phase=='prepare' or self.phase=='after') then
+            local log=self:readLogState()
+            if self.phase=='prepare'and log and id==log.toggleAction then id=0 end
+            self:prepareLog();self:applyRequestedLog()
             self:applyRequestedViewport()
             self:wheelZoom()
             -- Native drawing is read only even before the original DRAW hook.
@@ -336,6 +344,107 @@ function U:zoomAvailable()
     if type(self.api.testFieldZoom)~='function' or type(self.api.setTestFieldZoom)~='function' or type(self.api.testFieldEditorCapabilities)~='function' then return false end
     local ok,caps=pcall(self.api.testFieldEditorCapabilities)
     return ok and type(caps)=='table' and (caps.battleZoom==1 or caps.battleZoom==true)
+end
+function U:logAvailable()
+    if type(self.api.testFieldLogState)~='function'or type(self.api.setTestFieldLogVisible)~='function'or type(self.api.testFieldEditorCapabilities)~='function'then return false end
+    local ok,caps=pcall(self.api.testFieldEditorCapabilities)
+    return ok and type(caps)=='table'and(caps.battleLogVisibility==1 or caps.battleLogVisibility==true)
+end
+function U:readLogState()
+    self.logState=nil
+    if not self:logAvailable()then return nil,'Native battle-log control is unavailable.'end
+    local called,state,why=pcall(self.api.testFieldLogState)
+    if not called or type(state)~='table'then return nil,tostring(why or(not called and state)or'Native battle-log readback is unavailable.')end
+    if state.version~=1 or type(state.visible)~='boolean'or state.overlay~=true or state.reservesMapSpace~=false or
+        type(state.toggleAction)~='number'or state.toggleAction%1~=0 or type(state.rectValid)~='boolean'then return nil,'Native battle-log metadata is unsupported.'end
+    if state.rectValid then
+        if type(state.rect)~='table'then return nil,'Native battle-log bounds are incomplete.'end
+        for _,key in ipairs({'x','y','width','height'})do
+            local v=state.rect[key];if type(v)~='number'or v~=v or v==math.huge or v==-math.huge then return nil,'Native battle-log bounds are incomplete.'end
+        end
+        if state.rect.width<=0 or state.rect.height<=0 then return nil,'Native battle-log bounds are invalid.'end
+    end
+    self.logState=state;return state
+end
+function U:setLogVisibility(visible,source)
+    if not self:logAvailable()then return false,'Native battle-log control is unavailable.'end
+    local called,accepted,reason=pcall(self.api.setTestFieldLogVisible,visible)
+    local state,why;if called and accepted==true then state,why=self:readLogState()end
+    local verified=state and state.visible==visible
+    self.diag:record('battle_log_visibility',{phase=self.phase,source=source,visible=visible and 1 or 0,
+        result=verified and'native readback verified'or'refused or unverified',reason=verified and'none'or tostring(why or reason or(not called and accepted)or'visibility mismatch')})
+    if self.phase=='prepare'or self.phase=='after'then
+        -- Native log drawing follows our overlay; retire any old popup before
+        -- its newly visible panel can overdraw part of that popup.
+        self.context=nil;self.finalContext=nil;self:viewInputBarrier()
+    end
+    if not verified then return false,'Battle log unchanged or unverified: '..tostring(why or reason or(not called and accepted)or'visibility mismatch')end
+    return true
+end
+function U:prepareLog()
+    if self.phase~='prepare'or not self.runtime or not self.runtime.open or self.inNativeMenu or not self:logAvailable()then return end
+    local generation=self.runtime.generation or 0
+    if self.logHideFailedGeneration==generation then return end
+    local state,reason=self:readLogState()
+    if not state then self.logHideFailedGeneration=generation;self.message=reason;self:notice(reason);return end
+    if not state.visible then return end
+    local ok,why=self:setLogVisibility(false,'prepare always hidden')
+    if not ok then self.logHideFailedGeneration=generation;self.message=why;self:notice(why)end
+end
+function U:requestLogToggle()
+    if self.phase=='prepare'then return false end
+    local state,why=self:readLogState()
+    if not state then
+        if self.phase=='fight'then self.logMessage=why else self:notice(why)end
+        return false
+    end
+    self.requestedLogVisible=not state.visible;return true
+end
+function U:applyRequestedLog()
+    if self.phase=='prepare'then self.requestedLogVisible=nil;return end
+    if self.requestedLogVisible==nil then return end
+    local desired=self.requestedLogVisible;self.requestedLogVisible=nil
+    local ok,why=self:setLogVisibility(desired,'labelled button')
+    if not ok then
+        if self.phase=='fight'then self.logMessage=why else self.message=why;self:notice(why)end
+    else self.logMessage=nil end
+end
+function U:drawLogToggle(x,y,w,h)
+    local state=self:readLogState()
+    self:button('battlelog','Battle log: '..(state and(state.visible and'Hide'or'Show')or'N/A'),x,y,w,h,nil,10)
+end
+function U:logOccludes(x,y)
+    local state=self.logState;local r=state and state.visible and state.rectValid and state.rect
+    return r and x>=r.x and y>=r.y and x<r.x+r.width and y<r.y+r.height or false
+end
+function U:nativeLogInput(x,y)
+    if not self:logOccludes(x,y)or self.noticeText or self.runtime.blocked or self.searchFocused or self.editWindow or self.equipDialog or self.context or self.finalContext then return false end
+    for _,b in ipairs(self.buttons)do if x>=b.x and y>=b.y and x<b.x+b.w and y<b.y+b.h then return false end end
+    return true
+end
+function U:combatLogWait(id)
+    self:readLogState()
+    local called,buttons
+    if type(self.api.testFieldPointerButtons)=='function'then called,buttons=pcall(self.api.testFieldPointerButtons)end
+    if not called or type(buttons)~='number'then
+        self.logMessage='Native log button input unavailable; use the native log shortcut.';self:applyRequestedLog()
+        if self.logHeldTail then self.api.set('mouseButtons',(self.api.get('mouseButtons')or 0)&4);return 0 end
+        return id
+    end
+    local fresh=buttons&1~=0 and(self.logLastMouse or 0)&1==0
+    local x,y=self.api.get('uiPointerX'),self.api.get('uiPointerY');local owned=false
+    if fresh then for _,b in ipairs(self.buttons)do if b.key=='battlelog'and x>=b.x and y>=b.y and x<b.x+b.w and y<b.y+b.h then
+        self:requestLogToggle();self.logHeldTail=true;owned=true;break
+    end end end
+    self.logLastMouse=buttons;self:applyRequestedLog()
+    local gesture=self.logHeldTail
+    if gesture then
+        self.api.set('mouseButtons',(self.api.get('mouseButtons')or 0)&4)
+        if buttons&1==0 then self.logHeldTail=nil end
+    end
+    -- Own the complete overlay mouse gesture through release, even if its tail
+    -- moves over another native control. Native keys pass outside that gesture.
+    return (owned or gesture)and 0 or id
 end
 function U:usableViewport()
     return {x=0,y=38,width=self.api.get('screenW')-310,height=self.api.get('screenH')-76}
@@ -674,6 +783,7 @@ function U:placementPreview(x,y)
 end
 function U:ownsPointer(x,y)
     local W,H=self.api.get('screenW'),self.api.get('screenH')
+    if self:logOccludes(x,y)then return true end
     if self.phase=='after' then return y>=H-38 or y<106 end
     if ConfigWindow.owns(self,x,y)then return true end
     local rect=self:usableViewport()
@@ -681,6 +791,7 @@ function U:ownsPointer(x,y)
 end
 function U:draw()
     local api,ui=self.api,self.api.ui;local W,H=api.get('screenW'),api.get('screenH');local p=W-300
+    self:readLogState()
     self.buttons={};self.grid=nil;self.previewInfo=nil
     self.view=self.native and type(api.battleView)=='function' and api.battleView() or nil
     if self.native and not self.view then self.native=false;self.message='Native projection unavailable; compatibility planning grid shown.' end
@@ -764,6 +875,7 @@ function U:draw()
     self:button('team1',rosterLabel..'A: '..(self.phase=='after' and (finalCounts and self.finalPlan.teamA or '?') or M.count(self.scenario,1)),10,H-32,110,26,self.team==1 and {0.16,0.32,0.52} or nil)
     self:button('team2',rosterLabel..'B: '..(self.phase=='after' and (finalCounts and self.finalPlan.teamB or '?') or M.count(self.scenario,2)),128,H-32,110,26,self.team==2 and {0.16,0.32,0.52} or nil)
     if self.phase=='prepare' then self:button('native',self.native and 'Planning grid' or 'Battle map',248,H-32,122,26) end
+    if self.phase=='after'then self:drawLogToggle(536,H-32,162,26)end
     self:button('diagnostics','Export Diagnostics',380,H-32,148,26)
     if self.phase=='prepare' and self.native then
         local zoom=self:zoomState()
@@ -802,7 +914,7 @@ function U:draw()
         end
         return
     end
-    ui.drawText(12,H-57,11,(self.native and 'Native battle-map' or 'Compatibility planning grid')..' | '..(M.terrainNames[self.scenario.terrain] or 'Unknown'),1,0.9,0.7,1)
+    ui.drawText(12,H-57,11,(self.native and 'Native battle-map' or 'Compatibility planning grid')..' | '..(M.terrainNames[self.scenario.terrain] or 'Unknown')..(self:logAvailable()and''or' | log control N/A'),1,0.9,0.7,1)
     if self.previewInfo then
         ui.drawText(12,H-73,9,self.previewInfo.label,1,0.9,0.7,1)
         ui.drawText(12,H-87,9,'Partial only; native placement decides. Green clear / red blocked / pink outside / amber unknown.',1,0.9,0.7,1)
@@ -902,6 +1014,10 @@ function U:input(mouse)
         end end
         self.lastMouse=mouse
         return true
+    end
+    if self:nativeLogInput(x,y)then
+        self.lastMouse=mouse;self.lastCell=nil;self.dragOrigin=nil;self.dragVisited=nil;self.dragBlocked=mouse&3~=0
+        return false
     end
     if freshLeft then
         for i=#self.buttons,1,-1 do local b=self.buttons[i]
@@ -1085,9 +1201,13 @@ function U:fight()
     self:setSearchFocus(false)
     if M.count(self.scenario,1)==0 or M.count(self.scenario,2)==0 then self:notice('Place at least one unit for each team before fighting.');return false end
     local ready,why=self.runtime:ready(self.scenario);if not ready then self:notice(why);return false end
+    if self:logAvailable()then
+        local shown,reason=self:setLogVisibility(true,'combat visible default')
+        if not shown then self:notice(reason);return false end
+    end
     self.diag:record('battle_start',{units=#self.scenario.units,terrain=self.scenario.terrain})
     ConfigWindow.close(self);self.selectedItem=nil
-    self.snapshot=M.copy(self.scenario);self.phase='fight';self.context=nil;self.moving=nil
+    self.snapshot=M.copy(self.scenario);self.phase='fight';self.context=nil;self.moving=nil;self.buttons={};self.logLastMouse=0;self.logHeldTail=nil;self.logMessage=nil;self.requestedLogVisible=nil
     self.report:start(self.scenario,self.runtime);self.api.fightTestField();self.report:finish(self.scenario,self.runtime)
     self.phase='after';self.runtime.phase='after';self.native=true;self.finalContext=nil
     self.finalPlan=FinalView.prepare(self.runtime.finalState)
@@ -1133,6 +1253,7 @@ function U:reset(rematch)
     if ok then
         ConfigWindow.close(self);self.selectedItem=nil
         self.scenario=candidate;self.phase='prepare';self.native=type(self.api.battleView)=='function';self.context=nil;self.moving=nil;self.copyTemplate=nil;self.finalPlan=nil;self.finalContext=nil
+        self:prepareLog()
         self.message='Original pre-battle setup restored; previous report kept'
         self.diag:record(rematch and 'rematch' or 'reset',{units=#candidate.units});return true
     end
@@ -1234,6 +1355,7 @@ function U:dispatch(action)
     elseif action=='zoomout' then self:requestZoom(-1)
     elseif action=='zoomin' then self:requestZoom(1)
     elseif action=='fit' then self:requestFit()
+    elseif action=='battlelog'then self:requestLogToggle()
     elseif action=='startingitems' then self:toggleStartingItems()
     elseif action=='clearitems' then self:clearAllHeldItems()
     elseif action=='filter' then
@@ -1270,6 +1392,7 @@ function U:prepare(nativeDeployment,reuseVerified)
     if not ok then self:notice(why);return end
     self.scenario=candidate
     self.phase='prepare';self.native=type(self.api.battleView)=='function';self.pending=nil;self.lastMouse=0;self.escapeHeld=false
+    self:prepareLog()
     self.lastWheel=nil
     self.diag:record('open_field',{terrain=self.scenario.terrain,native=self.native and 1 or 0,units=#self.scenario.units})
     local success,err=xpcall(function()

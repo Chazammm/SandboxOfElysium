@@ -1,5 +1,10 @@
 # SandboxOfElysium development journal
 
+## 2026-11-17 - native log presentation, editor.14
+
+Completed zoom/Fortified Hoburg first, then verified that native side shading is a log overlay, not reserved map width. The separate owned-field API changes only presentation and restores the old flag on close. Sandbox hides it in setup and adds combat/post Hide/Show with actual-state labels and log input priority. Messages continue while hidden; projection and actor state are unchanged. [Evidence and limitations](docs/TEST-LOG-LAYOUT-2026-11-17.md). No binary distribution, normal-profile edits or submitted-PR changes.
+
+
 ## 2026-11-17 — editor.13 viewport and first siege
 
 Reproduced the zoom-out lower-edge clipping visibly, added a usable native viewport/Fit/full pan extent, and accepted Fortified Hoburg after constructor-origin tracking separated native structures from editable actors. A second exact-restore refusal was traced to legal native deployment on passable scenery and fixed using strict native passability in verified siege context. Added structure-aware rollback checks, diagnostics and final counters. [Tests, checkpoint pairing and limitations](docs/TEST-ZOOM-FORTIFICATION-2026-11-17.md). No normal-profile edits, binary distribution or submitted-PR changes.

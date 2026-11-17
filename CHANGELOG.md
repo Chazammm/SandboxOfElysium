@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased local development - editor.14, 2026-11-17
+
+- Hide the actual native log overlay during preparation. Keep the existing usable map area and native projection, zoom, pan and placement.
+- Start every battle with the native log visible. Add a labelled Hide/Show button during combat and in the post-battle field; preserve message generation, reports and native controls.
+- Use actual visibility/rectangle readbacks for log input priority and dismiss stale context popups when toggling. Missing API support remains explicit.
+- Retain editor.13 zoom and Fortified Hoburg. [Tests and limitations](docs/TEST-LOG-LAYOUT-2026-11-17.md).
+
+
 ## Unreleased local development — editor.13, 2026-11-17
 
 - Fit the actual playable field into the usable editor area, preserving aspect ratio and native pointer mapping. Add Fit, 10–200% native zoom and full reachable pan bounds; keep wheel/menu priority and existing formation controls.
