@@ -17,6 +17,68 @@ function R:multipleUniqueAvailable()
     local ok,caps=pcall(self.api.testFieldEditorCapabilities)
     return ok and type(caps)=='table' and caps.multipleUnique==1
 end
+local function exactValue(a,b)
+    if type(a)~=type(b)then return false end
+    if type(a)~='table'then return a==b end
+    for k,v in pairs(a)do if not exactValue(v,b[k])then return false end end
+    for k in pairs(b)do if a[k]==nil then return false end end
+    return true
+end
+local function clearItemsIdentity(state)
+    local value={unit=state.unit,generation=state.generation,items={},known=M.copy(state.known),memorized=M.copy(state.memorized),schools={},organInjuryFlags=state.organInjuryFlags}
+    for _,slot in ipairs(state.items or{})do value.items[#value.items+1]=slot.id end
+    for _,school in ipairs(state.schools or{})do value.schools[#value.schools+1]={path=school.path,base=school.base}end
+    return value
+end
+function R:setMultipleUnique(s,enabled)
+    if type(enabled)~='boolean'then return false,'Unique policy must be On or Off.',{rollbackVerified=true}end
+    local caps=type(self.api.testFieldEditorCapabilities)=='function'and self.api.testFieldEditorCapabilities()or{}
+    if caps.multipleUniquePolicy~=1 or type(self.api.setTestFieldMultipleUnique)~='function'then
+        return false,'Changing unique policy without rebuilding needs the updated experimental Extender. Field kept.',{rollbackVerified=true}
+    end
+    if self.blocked or self.cleanupFailed then return false,'Editing is locked; the preserved setup was kept.',{rollbackVerified=false}end
+    if not self.open then
+        local seen={}
+        if not enabled then for _,u in ipairs(s.units)do
+            if (self.api.get('monsterAbility',u.monster,'unique')or 0)>0 then
+                if seen[u.monster]then return false,'Remove the extra copies before switching Off. Setup kept.',{rollbackVerified=true}end
+                seen[u.monster]=true
+            end
+        end end
+        s.allowMultipleUnique=enabled
+        if self.diag then self.diag:record('multiple_unique_native',{enabled=enabled and 1 or 0,scope='pending setup; no native field',result='verified'})end
+        return true,nil,{rollbackVerified=true}
+    end
+    local healthy,previous=self:ready(s);if not healthy then return false,previous,{rollbackVerified=not self.blocked}end
+    local before=self:snapshot(s);local accepted,why=self.api.setTestFieldMultipleUnique(enabled)
+    local candidate=M.copy(s);if accepted then candidate.allowMultipleUnique=enabled end
+    local ok,observed,detail=self:check(candidate,true,previous)
+    if not ok then return self:quarantine(s,observed,before,detail)end
+    if not accepted then return false,'Unique policy refused: '..tostring(why)..'. Field kept.',{rollbackVerified=true}end
+    s.allowMultipleUnique=enabled;self:accept(s,observed)
+    if self.diag then self.diag:record('multiple_unique_native',{enabled=enabled and 1 or 0,field_generation=self.generation,in_place=1,result='verified'})end
+    return true,nil,{rollbackVerified=true}
+end
+function R:clearHeldItems(s,u,expected)
+    local caps=type(self.api.testFieldEditorCapabilities)=='function'and self.api.testFieldEditorCapabilities()or{}
+    if caps.clearHeldItems~=1 then return false,'Atomic held-item clearing needs the updated experimental Extender.',{rollbackVerified=true}end
+    local healthy,why=self:ready(s);if not healthy then return false,why,{rollbackVerified=not self.blocked}end
+    local unit=self.live[u.id];local state;state,why=Loadout.read(self,unit)
+    if not state then return false,why,{rollbackVerified=true}end
+    local original=clearItemsIdentity(state)
+    if not exactValue(original,expected)then return false,'This actor or its equipment/spells changed after confirmation. Review again.',{rollbackVerified=true}end
+    local accepted,message=Loadout.change(self,u,function(candidate,current)
+        if not exactValue(clearItemsIdentity(current),expected)then return false,'The confirmed native configuration changed.'end
+        candidate.equipment={}
+        return true,nil,{clearHeldItems=true}
+    end,'clear_held_items')
+    if accepted then return true,nil,{rollbackVerified=true}end
+    if self.blocked then return false,message,{rollbackVerified=false}end
+    local actual=Loadout.read(self,unit);local unchanged=actual and exactValue(clearItemsIdentity(actual),original)
+    local verified=self:check(s)
+    if not unchanged or not verified then return self:quarantine(s,'Held-item removal rollback could not be verified.',nil,{model_id=u.id,native_id=unit})end
+    return false,message,{rollbackVerified=true}
+end
 function R:emptyEditorAvailable()
     if type(self.api.testFieldEditorCapabilities)~='function' then return false end
     local ok,caps=pcall(self.api.testFieldEditorCapabilities)
@@ -370,7 +432,13 @@ function R:_build(s,nativeDeployment)
     for i=emptyEditor and 1 or 2,#a do spec.friends[#spec.friends+1]={a[i].monster,1} end
     for _,u in ipairs(b) do spec.enemies[#spec.enemies+1]={u.monster,1} end
     local ok,units=self.api.openTestField(spec)
-    if not ok then return false,'The extender refused to open the test field: '..tostring(units or 'unknown reason') end
+    if not ok then
+        if units=='temporary_square_busy' then
+            self.cleanupFailed=true
+            return false,'The temporary field square still contains a native actor whose safe cleanup is unverified. Setup preserved. Export Diagnostics, restart the isolated game, then load the recovery file; do not keep retrying this process.'
+        end
+        return false,'The extender refused to open the test field: '..tostring(units or 'unknown reason')
+    end
     if supported and self.api.get('squareTerrain',1,1)~=s.terrain then self.open=true;self:close();return false,'Extender terrain support is incompatible; selected terrain was not applied' end
     self.open=true;self.generation=(self.generation or 0)+1; self.width=self.api.get('battleWidth')
     if s.minimumWidth and self.width<s.minimumWidth then self:close();return false,'The requested minimum field width was not applied; setup kept.'end
@@ -523,6 +591,12 @@ function R:add(s,monster,team,x,y,template)
     if ok then stage='verify';local verified,observed=self:check(candidate,true,previous);ok=verified;why=verified and nil or observed end
     if not ok then
         local removed,removeWhy=self.api.removeTestFieldUnit(unit);self.live[u.id]=nil
+        local retired,retirementWhy=self:retirementVerified(unit)
+        if not retired or (not removed and removeWhy~='dead_unit') then
+            self.cleanupFailed=true
+            return self:quarantine(s,'The rejected actor could not be permanently retired. Restart the isolated game with the updated Extender and load the recovery file.',before,
+                {model_id=u.id,native_id=unit,remove_result=removed and 1 or 0,remove_detail=removeWhy or 'ok',retirement_verified=retired and 1 or 0,retirement_detail=retirementWhy})
+        end
         local restored,restoreWhy=self:check(s,true,previous)
         if not restored then
             local movable=self:check(s,false,previous)
@@ -547,6 +621,14 @@ function R:add(s,monster,team,x,y,template)
     if self.diag then self.diag:record(template and 'copy' or 'place',{name=u.name,id=u.id,model_id=u.id,live=unit,native_id=unit,team=team,x=x,y=y,old_width=oldWidth,width=self.width,result='verified'}) end
     return true,candidate,u
 end
+function R:retirementVerified(unit)
+    if type(self.api.testFieldUnitState)~='function'then return false,'retirement query unavailable'end
+    local ok,row,why=pcall(self.api.testFieldUnitState,unit)
+    if not ok or type(row)~='table'then return false,tostring(why or row)end
+    local retired=row.alive==false and row.hp==-9999 and row.worldX==-1 and row.worldY==-1 and
+        type(row.anchors)=='table'and #row.anchors==0 and type(row.occupied)=='table'and #row.occupied==0
+    return retired,retired and 'native tombstone, detached world coordinates and no occupied cells' or 'native permanent retirement not confirmed'
+end
 function R:remove(s,u)
     local before=self:snapshot(s)
     local healthy,previous=self:ready(s)
@@ -565,11 +647,16 @@ function R:remove(s,u)
         if good then return true,candidate end
         return false,reason
     elseif not ok then self:failure('delete',why,s,before,'unchanged',{name=u.name,id=u.id});return false,'The game refused removal. Army kept; Export Diagnostics for details.' end
+    local retired,retirementWhy=self:retirementVerified(unit)
+    if not retired then
+        self.cleanupFailed=true
+        return self:quarantine(s,'Native removal was not permanent. Restart the isolated game with the updated Extender and load the recovery file.',before,{model_id=u.id,native_id=unit,retirement_verified=0,retirement_detail=retirementWhy})
+    end
     local candidate=M.copy(s);M.remove(candidate,u.id);self.live[u.id]=nil
     local good,observed,details=self:check(candidate,true,previous)
     if not good then self.live[u.id]=unit;return self:quarantine(s,observed,before,details) end
     self:accept(candidate,observed)
-    if self.diag then self.diag:record('delete',{name=u.name,id=u.id,model_id=u.id,native_id=unit,result='retired; no anchor, hit cells or live model reference'}) end
+    if self.diag then self.diag:record('delete',{name=u.name,id=u.id,model_id=u.id,native_id=unit,result='permanently retired; native tombstone and world detachment verified; no anchor or hit cells'}) end
     return true,candidate
 end
 function R:memorize(u,spellName,on)

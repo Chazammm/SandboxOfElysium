@@ -1,5 +1,10 @@
 # SandboxOfElysium: API findings for musical_pianist
 
+## 2026-11-17 local editor.12 experiment
+
+Current upstream dev9d74ae4 (3.5.0) was checked. Separate source adds permanent owned retirement/current-life diagnostics, `setTestFieldMultipleUnique`, `testFieldZoom`/`setTestFieldZoom`, WAIT-only `testFieldPointerWheel`, and the explicit per-actor `clearHeldItems` configuration mode. These are outside the submitted PR. [Contracts, reproduction, tests and platform limits](TEST-EDITOR-CONTROLS-2026-11-17.md). No DLL is bundled.
+
+
 **2026-11-16 editor.11:** [Five additional verified native stock contexts and exact blockers](TEST-VANILLA-PRESETS-2026-11-16.md). Separate `testFieldEnvironmentState`/metadata extensions observe actual context without claiming complete environment serialization. Siege structures need creation provenance; sea/coast needs ship/neighbor contracts; underground needs reversible plane/neighborhood context. These gaps remain closed to selection. Current upstream dev `be8a2bf7b4fa094d828e2ad56eb0376e51adf3e1` now includes PR #2; it still lacks these newer local APIs.
 
 **Release-next local development (2026-11-16):** environment/minimum-width and bounded HP/XP/kills/injury-bit APIs are separate from submitted PR #2. Six neutral fields now include Jungle; water/siege/plane contexts, exact scenery and complete native unit/effect serialization remain gaps. [Current scope and API proposal](TEST-RELEASE-NEXT-2026-11-16.md). Earlier entries below retain their historical boundaries.

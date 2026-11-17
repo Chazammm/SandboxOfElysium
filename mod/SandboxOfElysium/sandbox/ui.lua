@@ -9,6 +9,7 @@ local Loadout=require('sandbox.loadout')
 local LoadoutUI=require('sandbox.loadout_ui')
 local ConfigWindow=require('sandbox.config_window')
 local Battlefields=require('sandbox.battlefields')
+local ClearItems=require('sandbox.clear_items')
 local U={};U.__index=U
 local kinds={'Single','Horizontal Row','Vertical Row','Square'}
 local categories={'All','human','animal','undead','demonic','flying','ranged','modded','unknown_origin'}
@@ -19,11 +20,23 @@ function U.new(api)
         phase='menu',message='',buttons={},lastMouse=0,pending=nil,native=false,context=nil},U)
     self.report=Report.new(api)
     self.diag=Diagnostics.new(api)
-    self.drawHook=api.wrap('BATTLE_DRAW',function(next) local result=next();if not self.inNativeMenu and (self.phase=='prepare' or self.phase=='after') then self:draw() end;return result end)
+    self.drawHook=api.wrap('BATTLE_DRAW',function(next)
+        local result=next()
+        if not self.inNativeMenu and (self.phase=='prepare' or self.phase=='after') then
+            self:draw()
+            self.zoomAwaitingDraw=nil
+        end
+        return result
+    end)
     self.waitHook=api.wrap('BATTLE_WAIT',function(next,b,m)
         local id=next(b,m)
         if not self.inNativeMenu and (self.phase=='prepare' or self.phase=='after') then
+            self:wheelZoom()
+            -- Native drawing is read only even before the original DRAW hook.
+            -- Mutate in WAIT, then discard input until a fresh map is drawn.
+            self:applyRequestedZoom()
             local engineButtons=api.get('mouseButtons') or 0
+            if self.zoomAwaitingDraw then api.set('mouseButtons',engineButtons&4);return 0 end
             local buttons=engineButtons
             if type(api.testFieldPointerButtons)=='function' then buttons=api.testFieldPointerButtons() end
             if buttons==nil then
@@ -159,9 +172,7 @@ function U:setup()
         if id==999 then return end
         if id==11 then self:terrainPicker()
         elseif id==17 then self:sizePicker()
-        elseif id==18 then
-            s.startingItems=s.startingItems==false;self.message='Starting equipment policy affects new placements only. Existing units, copies and restored configurations stay unchanged.'
-            self.diag:record('starting_items',{enabled=s.startingItems and 1 or 0,scope='new units only'})
+        elseif id==18 then self:toggleStartingItems()
         elseif id==1 or id==2 then s.colors[id]=s.colors[id]%7+1
         elseif id==15 then self:toggleMultipleUnique()
         elseif id==3 then
@@ -316,27 +327,117 @@ end
 function U:multipleUniqueAvailable()
     if type(self.api.testFieldEditorCapabilities)~='function' then return false end
     local ok,caps=pcall(self.api.testFieldEditorCapabilities)
-    return ok and type(caps)=='table' and (caps.multipleUnique==1 or caps.multipleUnique==true)
+    return ok and type(caps)=='table' and (caps.multipleUnique==1 or caps.multipleUnique==true) and
+        (caps.multipleUniquePolicy==1 or caps.multipleUniquePolicy==true) and type(self.runtime.setMultipleUnique)=='function'
+end
+function U:zoomAvailable()
+    if type(self.api.testFieldZoom)~='function' or type(self.api.setTestFieldZoom)~='function' or type(self.api.testFieldEditorCapabilities)~='function' then return false end
+    local ok,caps=pcall(self.api.testFieldEditorCapabilities)
+    return ok and type(caps)=='table' and (caps.battleZoom==1 or caps.battleZoom==true)
+end
+function U:zoomState()
+    if not self:zoomAvailable() then return nil,'Native battlefield zoom needs the updated experimental API.' end
+    local ok,state,why=pcall(self.api.testFieldZoom)
+    if not ok or type(state)~='table' then return nil,tostring(why or (not ok and state) or 'Native zoom readback is unavailable.') end
+    for _,key in ipairs({'zoom','minZoom','maxZoom','cellSize'}) do
+        local value=state[key]
+        if type(value)~='number' or value~=value or value==math.huge or value==-math.huge then return nil,'Native zoom readback is incomplete.' end
+    end
+    if state.minZoom<=0 or state.maxZoom<state.minZoom or state.zoom<state.minZoom or state.zoom>state.maxZoom or state.cellSize<=0 then return nil,'Native zoom readback is invalid.' end
+    return state
+end
+function U:requestZoom(direction,x,y)
+    if self.phase~='prepare' or not self.native or not self.runtime.open or self.runtime.blocked then return false end
+    local state,why=self:zoomState();if not state then self:notice(why);return false end
+    local target=math.max(state.minZoom,math.min(state.maxZoom,(self.requestedZoom or state.zoom)+direction*0.1))
+    self.requestedZoom=target
+    self.requestedZoomAnchor=x and y and {x=x,y=y} or nil
+    self.releaseBarrier=true;self.dragBlocked=true;self.lastCell=nil;self.dragOrigin=nil
+    return true
+end
+function U:wheelZoom()
+    if type(self.api.testFieldPointerWheel)~='function' or not self.runtime or not self.runtime.open or self.phase~='prepare' then self.lastWheel=nil;return end
+    local ok,current=pcall(self.api.testFieldPointerWheel)
+    if not ok or type(current)~='number' or current%1~=0 then self.lastWheel=nil;return end
+    local previous=self.lastWheel;self.lastWheel=current
+    if previous==nil then return end
+    local delta=(current-previous+0x80000000)%0x100000000-0x80000000
+    if delta==0 then return end
+    -- Every sample advances the baseline, including blocked/UI scrolls. They
+    -- must never be replayed later when the pointer returns to the map.
+    local x,y=self.api.get('uiPointerX'),self.api.get('uiPointerY')
+    if self.inNativeMenu or self.noticeText or self.searchFocused or self.editWindow or self.equipDialog or self.context or self.finalContext or
+        self.runtime.blocked or self.releaseBarrier or self:ownsPointer(x,y) then return end
+    local buttons=self.api.testFieldPointerButtons and self.api.testFieldPointerButtons() or self.api.get('mouseButtons') or 0
+    if buttons==nil or buttons&7~=0 then return end
+    self:requestZoom(math.max(-5,math.min(5,delta)),x,y)
+end
+function U:applyRequestedZoom()
+    if self.phase~='prepare' or self.inNativeMenu or not self.native or not self.runtime or not self.runtime.open or self.runtime.blocked or not self:zoomAvailable() then return end
+    if self.zoomAwaitingDraw then return end
+    local generation=self.runtime.generation
+    if generation~=nil and self.zoomGeneration~=generation then
+        self.zoomGeneration=generation
+        if self.requestedZoom==nil then self.requestedZoom=self.zoom or 1 end
+    end
+    if self.requestedZoom==nil then return end
+    local requested=self.requestedZoom;local anchor=self.requestedZoomAnchor;self.requestedZoom=nil;self.requestedZoomAnchor=nil
+    self.releaseBarrier=true;self.dragBlocked=true;self.lastCell=nil;self.dragOrigin=nil;self.zoomAwaitingDraw=true
+    local state,why=self:zoomState()
+    if not state then self.message=why;self:notice(why);return end
+    requested=math.max(state.minZoom,math.min(state.maxZoom,requested))
+    local called,accepted,reason=pcall(self.api.setTestFieldZoom,requested,anchor and anchor.x or (self.api.get('screenW')-310)/2,anchor and anchor.y or self.api.get('screenH')/2)
+    if not called or accepted~=true then
+        why=tostring(reason or (not called and accepted) or 'Native zoom was refused.')
+        self.message='Zoom unchanged: '..why;self:notice(self.message)
+        self.diag:record('battle_zoom',{result='refused',requested=requested,reason=why})
+        return
+    end
+    local observed;observed,why=self:zoomState()
+    if not observed then self.message='Native zoom readback could not be verified: '..why;self:notice(self.message);return end
+    self.zoom=observed.zoom;self.zoomGeneration=generation
+    self.message=('Native zoom: %d%%'):format(math.floor(observed.zoom*100+0.5))
+    self.diag:record('battle_zoom',{result='native readback verified',requested=requested,zoom=observed.zoom,cell_size=observed.cellSize,field_generation=generation or 'unknown'})
+end
+function U:toggleStartingItems()
+    if self.runtime.blocked then return false end
+    self.scenario.startingItems=self.scenario.startingItems==false
+    self.message='Starting equipment policy affects new placements only. Existing units, copies and restored configurations stay unchanged.'
+    self.diag:record('starting_items',{enabled=self.scenario.startingItems and 1 or 0,scope='new units only'})
+    return true
+end
+function U:clearAllHeldItems()
+    self:setSearchFocus(false);self.context=nil;self.moving=nil;self.copyTemplate=nil;self.pending=nil
+    self.releaseBarrier=true;self.dragBlocked=true;self.lastCell=nil;self.dragOrigin=nil
+    local plan,why=ClearItems.plan(self.runtime,self.scenario)
+    if not plan then self:notice(why);return false end
+    if plan.items==0 then self.message='Both teams already have no held items.';return true end
+    local previous=self.inNativeMenu;self.inNativeMenu=true
+    local id=self:menu('Clear All Held Items',{
+        {0,('Both teams: %d actors holding %d items (A: %d actors; B: %d actors).'):format(#plan.actors,plan.items,plan.teamA,plan.teamB)},
+        {0,('Includes all held equipment, %d cursed items and %d implanted items.'):format(plan.cursed,plan.implanted)},
+        {0,'Existing injuries and permanent anatomical damage are NOT healed.'},
+        {0,'Spells, names, positions and teams must stay unchanged.'},
+        {0,'Each actor is verified separately. A failure stops the operation; completed actors stay cleared.'},
+        {1,'Confirm - clear all held items on both teams'},
+        {999,'Cancel - keep all held items'}})
+    self.inNativeMenu=previous;self.releaseBarrier=true;self.dragBlocked=true;self.lastCell=nil;self.dragOrigin=nil
+    if id~=1 then self.message='Clear All Held Items cancelled; equipment kept.';return false end
+    local result=ClearItems.run(self.runtime,self.scenario,plan)
+    self.message=ClearItems.describe(result)
+    self.diag:record('clear_all_held_items',{result=result.ok and 'verified' or 'stopped',actors_total=result.total,
+        actors_completed=result.completed,items_removed=result.removed,actors_remaining=result.remaining,
+        failed_model_id=result.failed and result.failed.model_id or 'none',failed_native_id=result.failed and result.failed.native_id or 'none',
+        failed_actor_rollback=result.ok and 'not needed' or result.rollbackVerified and 'verified unchanged' or 'unverified',reason=result.reason or 'none'})
+    self:notice(self.message)
+    return result.ok
 end
 function U:toggleMultipleUnique()
-    if not self:multipleUniqueAvailable() then self:notice('Multiple independent unique units require the experimental API. The duplicate safety guard remains active.');return false end
-    local candidate=M.copy(self.scenario);candidate.allowMultipleUnique=not candidate.allowMultipleUnique
-    if not candidate.allowMultipleUnique then
-        local seen={}
-        for _,u in ipairs(candidate.units) do
-            if (self.api.get('monsterAbility',u.monster,'unique') or 0)>0 then
-                if seen[u.monster] then self:notice('Multiple unique units are still in this setup. Remove the extra copies before switching Off; current setup kept.');return false end
-                seen[u.monster]=true
-            end
-        end
-    end
-    if self.runtime.open then
-        local ok,why=self.runtime:build(candidate)
-        if not ok then self.message=why;self:notice(why);return false end
-    end
-    self.scenario=candidate;self.context=nil;self.moving=nil;self.copyTemplate=nil
-    self.message='Allow multiple unique units: '..(candidate.allowMultipleUnique and 'On' or 'Off')
-    self.diag:record('multiple_unique',{enabled=candidate.allowMultipleUnique and 1 or 0})
+    if not self:multipleUniqueAvailable() then self:notice('Changing the unique-unit policy needs the updated experimental API. Current setup kept.');return false end
+    local ok,why=self.runtime:setMultipleUnique(self.scenario,not self.scenario.allowMultipleUnique)
+    if not ok then self.message=why;self:notice(why);return false end
+    self.message='Allow multiple unique units: '..(self.scenario.allowMultipleUnique and 'On' or 'Off')..'. Battlefield kept.'
+    self.diag:record('multiple_unique',{enabled=self.scenario.allowMultipleUnique and 1 or 0,scope='policy only; no rebuild'})
     return true
 end
 function U:browse()
@@ -419,10 +520,11 @@ function U:repairSpells()
         end
     end
 end
-function U:button(key,label,x,y,w,h,color)
+function U:button(key,label,x,y,w,h,color,font)
     local ui=self.api.ui;color=color or {0.15,0.19,0.23}
+    font=font or 13
     ui.drawRect(x,y,w,h,color[1],color[2],color[3],0.97)
-    ui.drawText(x+5,y+(h-13)/2,13,label,0.96,0.96,0.90,1)
+    ui.drawText(x+5,y+(h-font)/2,font,label,0.96,0.96,0.90,1)
     self.buttons[#self.buttons+1]={key=key,x=x,y=y,w=w,h=h}
 end
 function U:unitAt(x,y)
@@ -498,7 +600,7 @@ function U:ownsPointer(x,y)
     local W,H=self.api.get('screenW'),self.api.get('screenH')
     if self.phase=='after' then return y>=H-38 or y<106 end
     if ConfigWindow.owns(self,x,y)then return true end
-    return y>=H-38 or y<38 or x>=W-300 and (y<342 or y>=H-240)
+    return y>=H-38 or y<38 or x>=W-310
 end
 function U:draw()
     local api,ui=self.api,self.api.ui;local W,H=api.get('screenW'),api.get('screenH');local p=W-300
@@ -581,6 +683,14 @@ function U:draw()
     self:button('team2',rosterLabel..'B: '..(self.phase=='after' and (finalCounts and self.finalPlan.teamB or '?') or M.count(self.scenario,2)),128,H-32,110,26,self.team==2 and {0.16,0.32,0.52} or nil)
     if self.phase=='prepare' then self:button('native',self.native and 'Planning grid' or 'Battle map',248,H-32,122,26) end
     self:button('diagnostics','Export Diagnostics',380,H-32,148,26)
+    if self.phase=='prepare' and self.native then
+        local zoom=self:zoomState()
+        if zoom then
+            self:button('zoomout','Zoom -',536,H-32,57,26,nil,11)
+            ui.drawText(597,H-24,10,('%d%%'):format(math.floor(zoom.zoom*100+0.5)),0.90,0.92,0.85,1)
+            self:button('zoomin','Zoom +',641,H-32,57,26,nil,11)
+        else ui.drawText(539,H-24,10,'Native zoom unavailable',0.65,0.70,0.70,1) end
+    end
     self:button('back',self.moving and 'Cancel move' or 'Back',W-94,H-32,84,26)
     ui.drawRect(0,0,W,38,0.035,0.045,0.055,0.98)
     ui.drawText(10,22,10,self.phase=='after' and 'Final snapshot is read only. Right-click a captured survivor for native Inspect where available.' or self.selectedItem and ('ITEM: '..Catalog.textLimit(self.selectedItem.name,42)..' - right-click a unit. Select again or Cancel item to clear.') or self.moving and 'MOVE: right-click destination; Cancel move keeps the original.' or (self.selected==nil or self.catalogTab=='items') and 'Right-click a unit: Inspect / Edit / Move / Copy / Delete.' or 'Right-click places. Existing unit: Inspect / Edit / Move / Copy / Delete.',1,1,0.9,1)
@@ -615,17 +725,20 @@ function U:draw()
     ui.drawRect(p,H-240,300,202,0.035,0.045,0.055,0.94)
     ui.drawText(p+8,H-61,12,self.selectedItem and ('Item: '..Catalog.textLimit(self.selectedItem.name,30,'...')) or self.catalogTab=='items' and 'Choose an item below' or selected and Catalog.textLimit(selected.name,37,'...') or 'Select a unit below',1,0.87,0.6,1)
     if self.selectedItem then
-        self:button('itemcancel','Cancel item selection',p+8,H-96,284,25,{0.30,0.20,0.13})
-    elseif self.catalogTab=='items'then ui.drawText(p+8,H-87,11,'Select an item, then right-click a placed unit.',0.9,0.9,0.85,1)
+        self:button('itemcancel','Cancel item selection',p+8,H-88,284,25,{0.30,0.20,0.13})
+    elseif self.catalogTab=='items'then ui.drawText(p+8,H-79,11,'Select an item, then right-click a placed unit.',0.9,0.9,0.85,1)
     else
-        self:button('formation',kinds[self.formation]..' ('..self.n..')',p+8,H-96,230,25)
-        self:button('number','+',p+246,H-96,46,25)
+        if self.formation==1 then self.n=1 end
+        self:button('formation',kinds[self.formation]..(self.formation==1 and '' or ' ('..self.n..')'),p+8,H-88,self.formation==1 and 284 or 230,25)
+        if self.formation~=1 then self:button('number','+',p+246,H-88,46,25) end
     end
-    self:button('fight','Start battle',p+8,H-131,284,29,{0.32,0.21,0.08})
-    self:button('save','Save',p+8,H-165,138,25);self:button('load','Load',p+154,H-165,138,25)
-    self:button('clear','Clear battlefield',p+8,H-198,178,25)
-    if self.snapshot then self:button('reset','Reset',p+194,H-198,98,25) end
-    self:button('unique','Multiple unique: '..(self.scenario.allowMultipleUnique and 'On' or 'Off'),p+8,H-232,284,25)
+    self:button('fight','Start battle',p+8,H-121,284,29,{0.32,0.21,0.08})
+    self:button('save','Save',p+8,H-150,138,25);self:button('load','Load',p+154,H-150,138,25)
+    self:button('clear','Clear battlefield',p+8,H-179,178,25)
+    if self.snapshot then self:button('reset','Reset',p+194,H-179,98,25) end
+    self:button('clearitems','Clear All Held Items',p+8,H-208,284,25)
+    self:button('unique','Multiple unique: '..(self.scenario.allowMultipleUnique and 'On' or 'Off'),p+8,H-237,138,25,nil,10)
+    self:button('startingitems','Starting items: '..(self.scenario.startingItems==false and 'Off' or 'On'),p+154,H-237,138,25,nil,10)
     self:button('catalogunits','Units',p+8,316,138,24,self.catalogTab~='items' and {0.16,0.32,0.46} or nil)
     self:button('catalogitems','Items',p+154,316,138,24,self.catalogTab=='items' and {0.16,0.32,0.46} or nil)
     if self.catalogTab=='items'then ConfigWindow.drawCatalog(self,p)else
@@ -1017,7 +1130,7 @@ function U:dispatch(action)
         else self:notice(candidate) end
     elseif action=='browse' then self:browse()
     elseif action=='formation' then self.formation=self.formation%4+1;self.n=self.formation==4 and 2 or 1
-    elseif action=='number' then self.n=self.formation==4 and (self.n==4 and 2 or self.n+1) or (self.n%15+1)
+    elseif action=='number' then self.n=self.formation==1 and 1 or self.formation==4 and (self.n==4 and 2 or self.n+1) or (self.n%15+1)
     elseif action=='search' then self:setSearchFocus(true)
     elseif action=='searchclear' then
         if self.catalogTab=='items'then self.itemSearch='';self.itemPage=1;ConfigWindow.items(self)else self.search='';self.page=1;self:refresh()end
@@ -1027,6 +1140,10 @@ function U:dispatch(action)
     elseif action=='itemcancel'then self.selectedItem=nil;self.equipDialog=nil;self.context=nil;self.releaseBarrier=true;self.message='Item selection cancelled. Right-click a unit for its context menu.'
     elseif action=='itemorigin'then local nextSource={all='modded',modded='unknown',unknown='all'};self.itemOrigin=nextSource[self.itemOrigin or 'all'];self.itemPage=1;ConfigWindow.items(self)
     elseif action=='unique' then self:toggleMultipleUnique()
+    elseif action=='zoomout' then self:requestZoom(-1)
+    elseif action=='zoomin' then self:requestZoom(1)
+    elseif action=='startingitems' then self:toggleStartingItems()
+    elseif action=='clearitems' then self:clearAllHeldItems()
     elseif action=='filter' then
         if self.catalogTab=='items'then self.itemSlotIndex=((self.itemSlotIndex or 0)+1)%(#self.catalog.itemSlots+1);self.itemSlot=self.catalog.itemSlots[self.itemSlotIndex];self.itemPage=1;ConfigWindow.items(self)
         else self.category=self.category%#categories+1;self.page=1;self:refresh()end
@@ -1061,6 +1178,7 @@ function U:prepare(nativeDeployment,reuseVerified)
     if not ok then self:notice(why);return end
     self.scenario=candidate
     self.phase='prepare';self.native=type(self.api.battleView)=='function';self.pending=nil;self.lastMouse=0;self.escapeHeld=false
+    self.lastWheel=nil
     self.diag:record('open_field',{terrain=self.scenario.terrain,native=self.native and 1 or 0,units=#self.scenario.units})
     local success,err=xpcall(function()
         while self.runtime.open do

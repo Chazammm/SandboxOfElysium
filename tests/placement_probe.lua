@@ -80,7 +80,7 @@ else
         assert(ok,tostring(nextScenario));checked(r,nextScenario,before);return nextScenario,u
     end
     local function absent(r,id)
-        local row=api.testFieldUnitState(id);assert(row and row.hp==0 and row.anchorCount==0 and #row.occupied==0,'removed slot not retired cleanly')
+        local row=api.testFieldUnitState(id);assert(row and row.hp==-9999 and row.worldX==-1 and row.worldY==-1 and row.anchorCount==0 and #row.occupied==0,'removed slot not permanently retired/detached')
         local state=api.testFieldState();assert(state.complete and #state.issues==0)
         for _,cell in ipairs(state.grid) do assert(cell.unit~=id,'retired anchor remains') end
         for _,unit in ipairs(state.units) do assert(unit.unit~=id or not unit.alive,'retired unit still alive') end
@@ -146,7 +146,7 @@ else
         assert(placed and not r.blocked);checked(r,s,before)
         checkpoint('forest',s,r,{obstacle_refused=1,later_placement=1});r:close()
     end)
-    test('injected_cleanup_failure_locks_then_explicit_recovery',function()
+    test('injected_cleanup_failure_locks_and_requires_restart',function()
         local r,s,d=fresh();local priest;s,priest=add(r,s,208,1,5,4)
         assert(r:memorize(priest,priest.spells[1],false))
         local known=table.concat(priest.baseline.known,'|');local memorized=table.concat(priest.spells,'|')
@@ -157,11 +157,12 @@ else
         assert(api.get('unitLastIndex')==last and d.firstIntegrity.message==first)
         assert(r.recoveryFile and api.readIni(r.recoveryFile).scenario,'preserved setup not written')
         local name=d:export({fixture='explicit injected cleanup refusal'},r:snapshot(s));results.recovery={diagnostics=name,scenario=r.recoveryFile,injected=1,locked=1}
-        r.api=realApi;local recovered,candidate=r:recover();assert(recovered,tostring(candidate));s=candidate
-        checked(r,s);local p
-        for _,u in ipairs(s.units) do if u.monster==208 then p=u end end
-        assert(p and table.concat(p.baseline.known,'|')==known and table.concat(p.spells,'|')==memorized)
-        results.recovery.reopened_exact_spells=1;r:close()
+        local preserved=M.encode(s,c.mods)
+        r.api=realApi;local recovered,message=r:recover();assert(not recovered and r.blocked and message:find('restart'),'unverified retirement recovered silently')
+        local function same(a,b)if type(a)~=type(b)then return false end;if type(a)~='table'then return a==b end;for k,v in pairs(a)do if not same(v,b[k])then return false end end;for k in pairs(b)do if a[k]==nil then return false end end;return true end
+        assert(same(preserved,M.encode(s,c.mods)) and table.concat(priest.baseline.known,'|')==known and table.concat(priest.spells,'|')==memorized)
+        assert(api.writeIni('controls-recovery-reference',{recovery={scenario=r.recoveryFile,known=known,memorized=memorized}}))
+        results.recovery.restart_required=1;results.recovery.preserved_exact_spells=1;r:close()
     end)
 end
 save()

@@ -1,14 +1,16 @@
-# Installation and testing — editor.11
+# Installation and testing — editor.12
 
 ## Choose the correct build
 
-The repository contains **0.1.0+editor.11**, an experimental Windows development version for **Conquest of Elysium 5.43 x64**. It includes the mod, documentation and local development tools. It is not a complete first-time player package.
+The repository contains **0.1.0+editor.12**, an experimental Windows development version for **Conquest of Elysium 5.43 x64**. It includes the mod, documentation and local development tools. It is not a complete first-time player package.
 
-The full editor needs additional APIs from a **separately built experimental CoE5SE**. The local release-next experiment is based on the separately submitted 3.4.4 source contribution, with additional environment/minimum-size/bounded-state work. That additional work is not part of PR #2. Unmodified official CoE5SE, including examined 3.4.4, does not implement the full editor contract. The Ranged fix alone is also insufficient. A GitHub source ZIP does not install these dependencies.
+The full editor needs additional APIs from a **separately built experimental CoE5SE**. The local release-next experiment is based on the separately submitted 3.4.4 source contribution, with additional environment/minimum-size/bounded-state work. That additional work is not part of PR #2. Unmodified official CoE5SE, including examined dev 3.5.0, does not implement the full editor contract. The Ranged fix alone is also insufficient. A GitHub source ZIP does not install these dependencies.
 
 No CoE5SE files or modified DLL are bundled here. Its [separate license](https://github.com/musical-pianist/coe5se/blob/d96f2b784e97e115022a2598da2c821dd9520135/LICENSE.txt) prohibits including them with a mod. The game, keys and third-party mods are not distributed either. Older prototype test reports do not certify this editor with stock upstream.
 
-The [submitted source-only API PR #2](https://github.com/musical-pianist/coe5se/pull/2) remains separate and unchanged. Local editor.10 additionally needs the release-next and individual-naming API experiments in `SandboxOfElysium-ExtenderLab-next`; the local BAT now defaults explicitly to this separate worktree. Use `-ExtenderSource` for an explicit alternate source. See [current feature/tests/limitations](docs/TEST-RELEASE-NEXT-2026-11-16.md). This is not a public dependency installer.
+The [submitted source-only API PR #2](https://github.com/musical-pianist/coe5se/pull/2) remains separate and unchanged. Local editor.12 additionally needs the release-next and individual-naming API experiments in `SandboxOfElysium-ExtenderLab-next`; the local BAT now defaults explicitly to this separate worktree. Use `-ExtenderSource` for an explicit alternate source. See [current feature/tests/limitations](docs/TEST-RELEASE-NEXT-2026-11-16.md). This is not a public dependency installer.
+
+Current controls, retirement/zoom/item API requirements and exact tests: [editor.12 report](docs/TEST-EDITOR-CONTROLS-2026-11-17.md). The existing BAT builds the matching separate experiment locally.
 
 ## On the existing development computer
 
@@ -27,7 +29,7 @@ The launcher uses only its private runtime/profile. Scenario and diagnostic file
 
 1. Install your own compatible Windows CoE5. Obtain official CoE5SE and its instructions from its [official repository](https://github.com/musical-pianist/coe5se). Stock CoE5SE alone does not enable this full development editor.
 2. Download/clone this repository. The mod folder is **mod/SandboxOfElysium**; the entire repository is not a game mod folder.
-3. Full editor.11 currently requires a separately obtained and appropriately built compatible experimental Extender plus an independently prepared isolated game/profile. This download sets up neither. Do not replace a regular installation with the experimental build.
+3. Full editor.12 currently requires a separately obtained and appropriately built compatible experimental Extender plus an independently prepared isolated game/profile. This download sets up neither. Do not replace a regular installation with the experimental build.
 4. Once that separate test environment is ready, copy the complete **SandboxOfElysium** mod folder into its own **mods** directory and enable CoE5SE and SandboxOfElysium in its test profile. The `.c5m` belongs directly inside the SandboxOfElysium folder. Preserve existing scenario files separately.
 
 Mac, Linux, multiplayer and arbitrary mod combinations have not been accepted for this editor. A source review branch is not a public binary release.
@@ -51,6 +53,6 @@ Disable the mod and remove its mod folder to uninstall. Keep scenario data under
 
 For individual names: right-click an actor → Edit → Name. Maximum32 Unicode code points and 47 UTF-8 bytes; excess input shows an error and is refused. Naming needs the separate local naming experiment; PR #2 and stock3.4.4 alone do not provide it. [Native naming tests and exact limitations](docs/TEST-NATIVE-NAMES-2026-11-16.md).
 
-## Verified battlefields in editor.11
+## Verified battlefields in editor.12
 
 Choose **Sandbox → Battlefield → Farm, Village, Hoburg Village, Oasis or Tent Village**, then **Open with native deployment (reposition units)** for a new layout. The six previous terrain choices and all current controls remain available. Saved exact positions still require native verification; scenery may block a cell after rebuilding. Sieges/gates, sea/coasts and underground contexts remain unavailable. [Tests, exact checkpoint pairing and blockers](docs/TEST-VANILLA-PRESETS-2026-11-16.md).

@@ -31,12 +31,13 @@ local function fixture()
         testFieldPointerButtons=function()return state.buttons end,
         setTestFieldTextFocus=function(on)state.focused=on;return true end,
         takeTestFieldTextEvents=function()local e=state.events;state.events={};return {focused=state.focused,events=e}end,
-        testFieldEditorCapabilities=function()return {multipleUnique=1}end,
+        testFieldEditorCapabilities=function()return {multipleUnique=1,multipleUniquePolicy=1}end,
         battleScreenToCell=function()return 6,6 end,battleUnitAt=function()return -1 end,
         ui={nameBox=function()state.prompts=state.prompts+1;return 'popup' end,
             drawRect=function()end,drawText=function()end,
             drawMonsterIconFit=function(x,y,w,h,id)state.icons[#state.icons+1]={x=x,y=y,w=w,h=h,id=id};return true end}}
     local u=U.new(api);u.phase='prepare';u.scenario=M.new();u.runtime={open=true,width=30,live={},objects={}}
+    u.runtime.setMultipleUnique=function(_,s,on)s.allowMultipleUnique=on;return true end
     u.catalog={monsters={{id=1,name='Äther',categories={}},{id=2,name='Apocalyptic Rider',categories={}},{id=3,name='Zebra',categories={}}},byId={}}
     for _,m in ipairs(u.catalog.monsters)do u.catalog.byId[m.id]=m end
     u.selected=1;u:refresh()
@@ -119,18 +120,19 @@ test('five fitted icon rectangles and controls fit both observed UI sizes',funct
         for _,b in ipairs(u.buttons)do assert(b.x>=0 and b.y>=0 and b.x+b.w<=width and b.y+b.h<=600,'button outside UI')end
     end
 end)
-test('multiple unique toggle commits a candidate only after verified rebuild',function()
+test('multiple unique toggle uses only the verified policy setter and never rebuilds',function()
     local u=fixture();local before=u.scenario;before.allowMultipleUnique=false
-    u.runtime.build=function(_,candidate)assert(candidate~=before and candidate.allowMultipleUnique);return false,'rebuild refused'end
+    u.runtime.build=function()error('policy change must not rebuild')end
+    u.runtime.setMultipleUnique=function(_,s,on)assert(s==before and on);return false,'policy change refused'end
     u:toggleMultipleUnique();assert(u.scenario==before and not before.allowMultipleUnique)
-    u.noticeText=nil;u.runtime.build=function(_,candidate)assert(candidate~=before);return true end
-    assert(u:toggleMultipleUnique() and u.scenario~=before and u.scenario.allowMultipleUnique and not before.allowMultipleUnique)
+    u.noticeText=nil;u.runtime.setMultipleUnique=function(_,s,on)assert(s==before);s.allowMultipleUnique=on;return true end
+    assert(u:toggleMultipleUnique() and u.scenario==before and before.allowMultipleUnique)
 end)
-test('closed-field duplicate unique setup refuses Off before mutating the flag',function()
+test('policy setter duplicate refusal keeps the setup flag and objects unchanged',function()
     local u=fixture();u.runtime.open=false;u.scenario.allowMultipleUnique=true
     u.scenario.units={{id=1,monster=207},{id=2,monster=207}}
-    local before=u.scenario;local get=u.api.get
-    u.api.get=function(key,...)if key=='monsterAbility'then return 1 end;return get(key,...)end
+    local before=u.scenario
+    u.runtime.setMultipleUnique=function(_,s,on)assert(s==before and not on);return false,'Remove the extra copies before switching Off'end
     u.notice=function(_,text)assert(text:find('Remove the extra copies'))end
     assert(not u:toggleMultipleUnique() and u.scenario==before and before.allowMultipleUnique)
 end)

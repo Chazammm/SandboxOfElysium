@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased local development — editor.12, 2026-11-17
+
+- Fix rejected/deleted regenerative actors with verified permanent native retirement in the separate experiment; preserve recovery and lock on unverified cleanup.
+- Change unique policy in place without rebuilding scenery or actors.
+- Add native Zoom -/+ and map-only mouse-wheel zoom, fixed UI and fresh-draw input barriers.
+- Add right-panel new-only starting items, Single count1, and explicit both-team Clear All Held Items with per-actor rollback/spell/injury safeguards.
+- Add focused offline/native tests and bounded current-life/busy-identity diagnostics. See [exact evidence and limits](docs/TEST-EDITOR-CONTROLS-2026-11-17.md). No binary distribution or submitted PR changes.
+
+
 ## Unreleased — editor.11 verified stock contexts, 2026-11-16
 
 - Preserve the tested editor.10 source in a local checkpoint, separately from its experimental Extender source.

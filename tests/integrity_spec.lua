@@ -86,10 +86,11 @@ test('successful move return cannot substitute for a global final-position check
     r.api.moveTestFieldUnit=function()return true end -- lying injected contract
     local ok,why=r:place(s);assert(not ok and why=='native_position_mismatch')
 end)
-test('already retired new allocation can have a verified unchanged rollback',function()
+test('already permanently retired new allocation can have a verified unchanged rollback',function()
     local r,s,state=fixture()
     r.api.addTestFieldUnits=function()state.units[#state.units+1]=row(15,13,0,22,9,1,1);return {15} end
     r.api.removeTestFieldUnit=function()table.remove(state.units);return false,'dead_unit' end
+    r.api.testFieldUnitState=function()return {alive=false,hp=-9999,worldX=-1,worldY=-1,anchors={},occupied={}}end
     local ok=r:add(s,13,1,8,8)
     assert(not ok and not r.blocked and r.diag.lastError.restored=='existing army kept')
     assert(r.diag.lastError.details.remove_result==0 and r.diag.lastError.details.rollback_verified==1)
@@ -137,5 +138,19 @@ test('unverified whole-field cleanup preserves setup and requires fresh isolated
     other.api.closeTestField=function()return true end
     other.api.testFieldLifecycle=function()return {open=false,complete=false,issues={{code='cleanup_unverified'}}} end
     assert(not other:close() and other.blocked and other.recovery,'success without verified lifecycle accepted')
+end)
+test('HP-zero removal success cannot authorize rollback or a later battle',function()
+    local r,s,state,calls=fixture()
+    r.api.addTestFieldUnits=function()state.units[#state.units+1]=row(15,13,0,22,9,1,1);return {15}end
+    r.api.removeTestFieldUnit=function()table.remove(state.units);return true end
+    r.api.testFieldUnitState=function()return{alive=false,hp=0,worldX=1,worldY=1,anchors={},occupied={}}end
+    assert(not r:add(s,13,1,8,8)and r.blocked and r.cleanupFailed and #s.units==2 and calls.preserve==1)
+    assert(not r:ready(s)and not r:recover())
+end)
+test('HP-zero deletion does not silently remove the saved actor',function()
+    local r,s,state,calls=fixture()
+    r.api.removeTestFieldUnit=function()table.remove(state.units,2);return true end
+    r.api.testFieldUnitState=function()return{alive=false,hp=0,worldX=1,worldY=1,anchors={},occupied={}}end
+    assert(not r:remove(s,s.units[2])and r.blocked and r.cleanupFailed and #s.units==2 and calls.preserve==1)
 end)
 print(n..' integrity/contract checks passed outside game')

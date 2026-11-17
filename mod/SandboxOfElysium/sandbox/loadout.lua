@@ -171,6 +171,7 @@ function L.configure(r,u,unit,restoring,options)
     local wanted;wanted,why=L.wanted(r,u,state);if not wanted then return false,why end
     if restoring then wanted.restoreKnown=true end
     if options and options.removeCursed then wanted.removeCursed=M.copy(options.removeCursed) end
+    if options and options.clearHeldItems then wanted.clearHeldItems=true end
     local ok,reason,detail=true
     if restoring then ok,reason,detail=clearCursedDefaults(r,unit,state,wanted)end
     if ok then ok,reason,detail=r.api.setTestFieldConfiguration(unit,wanted)end

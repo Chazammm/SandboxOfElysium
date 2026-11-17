@@ -1,5 +1,10 @@
 # SandboxOfElysium development journal
 
+## 2026-11-17 — editor.12 lifecycle and controls
+
+Replayed all three bounded user exports and the actual15-actor recovery privately. Confirmed rejected HP-zero Troll regeneration and an untracked old actor blocking the next temporary square. Added permanent native retirement/readback and safe restart recovery, policy-only unique toggling, native button/wheel zoom, right-panel starting items, Single1 and explicit per-actor held-item clearing. [Detailed tests and limitations](docs/TEST-EDITOR-CONTROLS-2026-11-17.md). Experimental Extender remains separate; no PR/push/release.
+
+
 ## 2026-11-16 — tested checkpoints and editor.11 native presets
 
 Created separate local source checkpoints for the manually tested editor.10 and corresponding experimental Extender. Added five guarded native stock presets after fresh in-game API matrices; visibly checked the eleven-choice picker, Farm battle/Rematch/post-battle/Reset and Oasis scene. Kept current controls and placement logic. Siege gates expose a native structure-provenance gap; other unverified contexts remain unavailable. Added bounded environment diagnostics and a separate context API proposal. Agent-launched games are now muted per user instruction. [Exact revisions, tests and limitations](docs/TEST-VANILLA-PRESETS-2026-11-16.md). No push, release, new PR, submitted-PR edits or binary bundling.

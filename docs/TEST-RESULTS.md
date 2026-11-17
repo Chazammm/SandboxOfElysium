@@ -1,5 +1,8 @@
 # Verification results — 2026-11-13
 
+**2026-11-17 editor.12:** [Actual Troll/busy-square reproduction, permanent retirement, native button/wheel zoom, in-place unique policy, safe item clearing and exact current-build tests](TEST-EDITOR-CONTROLS-2026-11-17.md). Historical results below retain their original version boundaries.
+
+
 **2026-11-16 editor.11:** [Local checkpoint pairing, five new native presets, 162 offline cases, ordinary-build API regressions and actual Farm/Oasis visible observations](TEST-VANILLA-PRESETS-2026-11-16.md). Failures, unsupported contexts and QA quota reruns are recorded separately. This does not upgrade historical test coverage.
 
 **2026-11-16 editor.10:** [Native individual naming, limits, exact persistence and separate API evidence](TEST-NATIVE-NAMES-2026-11-16.md). Current naming tests and visible observations are distinct from all historical reports below.

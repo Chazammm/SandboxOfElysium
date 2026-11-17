@@ -25,6 +25,9 @@ assert(loadfile('tests/cursed_probe.lua'))
 
 assert(loadfile('mod/SandboxOfElysium/sandbox/condition.lua'))
 assert(loadfile('mod/SandboxOfElysium/sandbox/battlefields.lua'))
+assert(loadfile('mod/SandboxOfElysium/sandbox/clear_items.lua'))
+assert(loadfile('tests/controls_spec.lua'))
+assert(loadfile('tests/controls_probe.lua'))
 
 assert(loadfile('tests/release_next_probe.lua'))
 assert(loadfile('mod/SandboxOfElysium/sandbox/names.lua'))
