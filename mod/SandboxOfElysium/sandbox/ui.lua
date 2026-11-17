@@ -31,7 +31,6 @@ function U.new(api)
     self.waitHook=api.wrap('BATTLE_WAIT',function(next,b,m)
         local id=next(b,m)
         if not self.inNativeMenu and (self.phase=='prepare' or self.phase=='after') then
-            self:wheelZoom()
             -- Native drawing is read only even before the original DRAW hook.
             -- Mutate in WAIT, then discard input until a fresh map is drawn.
             self:applyRequestedZoom()
@@ -346,31 +345,13 @@ function U:zoomState()
     if state.minZoom<=0 or state.maxZoom<state.minZoom or state.zoom<state.minZoom or state.zoom>state.maxZoom or state.cellSize<=0 then return nil,'Native zoom readback is invalid.' end
     return state
 end
-function U:requestZoom(direction,x,y)
+function U:requestZoom(direction)
     if self.phase~='prepare' or not self.native or not self.runtime.open or self.runtime.blocked then return false end
     local state,why=self:zoomState();if not state then self:notice(why);return false end
     local target=math.max(state.minZoom,math.min(state.maxZoom,(self.requestedZoom or state.zoom)+direction*0.1))
     self.requestedZoom=target
-    self.requestedZoomAnchor=x and y and {x=x,y=y} or nil
     self.releaseBarrier=true;self.dragBlocked=true;self.lastCell=nil;self.dragOrigin=nil
     return true
-end
-function U:wheelZoom()
-    if type(self.api.testFieldPointerWheel)~='function' or not self.runtime or not self.runtime.open or self.phase~='prepare' then self.lastWheel=nil;return end
-    local ok,current=pcall(self.api.testFieldPointerWheel)
-    if not ok or type(current)~='number' or current%1~=0 then self.lastWheel=nil;return end
-    local previous=self.lastWheel;self.lastWheel=current
-    if previous==nil then return end
-    local delta=(current-previous+0x80000000)%0x100000000-0x80000000
-    if delta==0 then return end
-    -- Every sample advances the baseline, including blocked/UI scrolls. They
-    -- must never be replayed later when the pointer returns to the map.
-    local x,y=self.api.get('uiPointerX'),self.api.get('uiPointerY')
-    if self.inNativeMenu or self.noticeText or self.searchFocused or self.editWindow or self.equipDialog or self.context or self.finalContext or
-        self.runtime.blocked or self.releaseBarrier or self:ownsPointer(x,y) then return end
-    local buttons=self.api.testFieldPointerButtons and self.api.testFieldPointerButtons() or self.api.get('mouseButtons') or 0
-    if buttons==nil or buttons&7~=0 then return end
-    self:requestZoom(math.max(-5,math.min(5,delta)),x,y)
 end
 function U:applyRequestedZoom()
     if self.phase~='prepare' or self.inNativeMenu or not self.native or not self.runtime or not self.runtime.open or self.runtime.blocked or not self:zoomAvailable() then return end
@@ -381,12 +362,12 @@ function U:applyRequestedZoom()
         if self.requestedZoom==nil then self.requestedZoom=self.zoom or 1 end
     end
     if self.requestedZoom==nil then return end
-    local requested=self.requestedZoom;local anchor=self.requestedZoomAnchor;self.requestedZoom=nil;self.requestedZoomAnchor=nil
+    local requested=self.requestedZoom;self.requestedZoom=nil
     self.releaseBarrier=true;self.dragBlocked=true;self.lastCell=nil;self.dragOrigin=nil;self.zoomAwaitingDraw=true
     local state,why=self:zoomState()
     if not state then self.message=why;self:notice(why);return end
     requested=math.max(state.minZoom,math.min(state.maxZoom,requested))
-    local called,accepted,reason=pcall(self.api.setTestFieldZoom,requested,anchor and anchor.x or (self.api.get('screenW')-310)/2,anchor and anchor.y or self.api.get('screenH')/2)
+    local called,accepted,reason=pcall(self.api.setTestFieldZoom,requested,(self.api.get('screenW')-310)/2,self.api.get('screenH')/2)
     if not called or accepted~=true then
         why=tostring(reason or (not called and accepted) or 'Native zoom was refused.')
         self.message='Zoom unchanged: '..why;self:notice(self.message)
@@ -729,8 +710,11 @@ function U:draw()
     elseif self.catalogTab=='items'then ui.drawText(p+8,H-79,11,'Select an item, then right-click a placed unit.',0.9,0.9,0.85,1)
     else
         if self.formation==1 then self.n=1 end
-        self:button('formation',kinds[self.formation]..(self.formation==1 and '' or ' ('..self.n..')'),p+8,H-88,self.formation==1 and 284 or 230,25)
-        if self.formation~=1 then self:button('number','+',p+246,H-88,46,25) end
+        self:button('formation',kinds[self.formation]..(self.formation==1 and '' or ' ('..self.n..')'),p+8,H-88,self.formation==1 and 284 or 176,25)
+        if self.formation~=1 then
+            self:button('numberdown','-',p+192,H-88,46,25)
+            self:button('number','+',p+246,H-88,46,25)
+        end
     end
     self:button('fight','Start battle',p+8,H-121,284,29,{0.32,0.21,0.08})
     self:button('save','Save',p+8,H-150,138,25);self:button('load','Load',p+154,H-150,138,25)
@@ -1131,6 +1115,7 @@ function U:dispatch(action)
     elseif action=='browse' then self:browse()
     elseif action=='formation' then self.formation=self.formation%4+1;self.n=self.formation==4 and 2 or 1
     elseif action=='number' then self.n=self.formation==1 and 1 or self.formation==4 and (self.n==4 and 2 or self.n+1) or (self.n%15+1)
+    elseif action=='numberdown' then self.n=self.formation==1 and 1 or math.max(self.formation==4 and 2 or 1,self.n-1)
     elseif action=='search' then self:setSearchFocus(true)
     elseif action=='searchclear' then
         if self.catalogTab=='items'then self.itemSearch='';self.itemPage=1;ConfigWindow.items(self)else self.search='';self.page=1;self:refresh()end
@@ -1178,7 +1163,6 @@ function U:prepare(nativeDeployment,reuseVerified)
     if not ok then self:notice(why);return end
     self.scenario=candidate
     self.phase='prepare';self.native=type(self.api.battleView)=='function';self.pending=nil;self.lastMouse=0;self.escapeHeld=false
-    self.lastWheel=nil
     self.diag:record('open_field',{terrain=self.scenario.terrain,native=self.native and 1 or 0,units=#self.scenario.units})
     local success,err=xpcall(function()
         while self.runtime.open do

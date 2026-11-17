@@ -1,5 +1,7 @@
 # Editor.12: rejected Troll lifecycle and battlefield controls
 
+**Later user correction, 2026-11-17:** mouse-wheel zoom was withdrawn. Formation sizes now have adjacent minus/plus buttons; minus stops at one for rows and 2x2 for squares, and Single hides both. Native zoom buttons remain. The follow-up mod tree is `a86434e20becbf6390895f542eb41be4ee3c71737695dd25482c4fcb795e2c1a`. All188 current offline cases plus syntax pass (four obsolete wheel cases removed). Visible muted session `8a3799c2fd0246b7ae715887424d8d8c` confirmed Horizontal1→2→1→1 and no wheel zoom at100%, with both army counters unchanged. No new battle was launched; the separate Extender was unchanged. Results below describe the preceding `eaded4aa50d18d75229d12e13408432ce1efb8a3` checkpoint and retain their original wheel-test/version boundaries.
+
 Local development only. Sandbox and experimental Extender source remain separate; no modified DLL, private diagnostic, game file or third-party mod is distributed. The submitted API PR is unchanged. Every game in this investigation used `--nosound --musicvol=0` and a new private runtime/profile, leaving the user's two previous lab profiles intact.
 
 ## Diagnostic chronology and uncertainty
@@ -53,7 +55,7 @@ Remaining limits: complete sustained physical right-button drag and every combin
 
 ## Exact accepted source/build and rerun record
 
-Separate Extender checkpoint: `7442a9c931c449b460b6e50406b31e9cae12ac1c`, branch `experiment/sandbox-release-next-20261116`. Sandbox source is this editor.12 checkpoint on `development/release-next-editor9-20261116`; distributed mod tree SHA256 `67025a196aa011fda0428d0caf07130dafbc265795a1c1ba93ccadaa540e3af3`. The exact paired Git revisions are additionally recorded in the private final manifest after the Sandbox commit.
+Separate Extender checkpoint: `7442a9c931c449b460b6e50406b31e9cae12ac1c`, branch `experiment/sandbox-release-next-20261116`. The original tested Sandbox checkpoint is `eaded4aa50d18d75229d12e13408432ce1efb8a3` on `development/release-next-editor9-20261116`; its mod tree SHA256 is `67025a196aa011fda0428d0caf07130dafbc265795a1c1ba93ccadaa540e3af3`. The formation-size follow-up is recorded separately above.
 
 Accepted DLL SHA256 `c64bb566284868cd32ba1c532688831f420198755a097528a47230ef6ab72973`, build `controls-final`, llvm-mingw20260922 through the existing build script, zero compiler warnings, no candidate/fault flags. The previous v11 build is byte-identical; a Mac-only capability guard changes no Windows output. No DLL is committed.
 

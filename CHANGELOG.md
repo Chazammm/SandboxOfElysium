@@ -4,7 +4,8 @@
 
 - Fix rejected/deleted regenerative actors with verified permanent native retirement in the separate experiment; preserve recovery and lock on unverified cleanup.
 - Change unique policy in place without rebuilding scenery or actors.
-- Add native Zoom -/+ and map-only mouse-wheel zoom, fixed UI and fresh-draw input barriers.
+- Add native Zoom -/+, fixed UI and fresh-draw input barriers. Mouse-wheel zoom was subsequently withdrawn at the user's request.
+- Add a formation-size minus beside plus. Rows stop at one and squares at 2x2; Single has neither size button. Existing plus behavior is retained.
 - Add right-panel new-only starting items, Single count1, and explicit both-team Clear All Held Items with per-actor rollback/spell/injury safeguards.
 - Add focused offline/native tests and bounded current-life/busy-identity diagnostics. See [exact evidence and limits](docs/TEST-EDITOR-CONTROLS-2026-11-17.md). No binary distribution or submitted PR changes.
 

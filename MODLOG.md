@@ -1,5 +1,9 @@
 # SandboxOfElysium development journal
 
+## 2026-11-17 — formation-size correction
+
+The user clarified that the intended controls were formation-size plus/minus. Removed Sandbox's wheel-zoom handling and added adjacent minus buttons, clamped at one for rows and 2x2 for squares. Native zoom buttons remain. All 188 current offline cases and syntax checks pass; obsolete wheel-behavior checks were replaced. In the muted isolated game, Horizontal visibly followed 1→2→1→1, with unchanged army counters; scrolling over the map kept zoom at 100%. No battle was started during this follow-up. The separate Extender and submitted PR were unchanged.
+
 ## 2026-11-17 — editor.12 lifecycle and controls
 
 Replayed all three bounded user exports and the actual15-actor recovery privately. Confirmed rejected HP-zero Troll regeneration and an untracked old actor blocking the next temporary square. Added permanent native retirement/readback and safe restart recovery, policy-only unique toggling, native button/wheel zoom, right-panel starting items, Single1 and explicit per-actor held-item clearing. [Detailed tests and limitations](docs/TEST-EDITOR-CONTROLS-2026-11-17.md). Experimental Extender remains separate; no PR/push/release.

@@ -4,7 +4,7 @@ An experimental Lua sandbox for **Conquest of Elysium 5**. Open **Sandbox** from
 
 **Current development version: `0.1.0+editor.12`.** See [Installation and testing](INSTALLATION.md). The editor requires additional APIs from a **separate experimental CoE5 Script Extender**. Stock upstream CoE5SE, including examined dev 3.5.0, does not provide the complete editor contract. This repository contains no Extender DLL, game files or third-party mod files. Its source update does not replace the older 0.1.0 prototype package.
 
-**Current controls and lifecycle fix:** [rejected Troll regeneration, in-place unique policy, native button/wheel zoom, item clearing, exact tests and limitations](docs/TEST-EDITOR-CONTROLS-2026-11-17.md). This is a local source checkpoint, with a separate experimental Extender.
+**Current controls and lifecycle fix:** [rejected Troll regeneration, in-place unique policy, native zoom buttons, item clearing, exact tests and limitations](docs/TEST-EDITOR-CONTROLS-2026-11-17.md). A later user correction removes wheel zoom and adds formation-size minus buttons beside plus. This is local development source, with a separate experimental Extender.
 
 **Current map work:** [five additional native presets, checkpoint revisions, exact tests and unavailable contexts](docs/TEST-VANILLA-PRESETS-2026-11-16.md). Eleven verified fields are selectable with the matching separate experiment.
 
@@ -30,9 +30,9 @@ This launcher requires the already prepared private environment, an owned verifi
 
 - The setup menu separates **Current setup**, **Battlefield**, **Scenarios**, **Tools** and navigation. Team colors cycle through seven choices; equal colors are allowed without making the teams allies.
 - The right panel has **Units / Items**, live search and filters, with five results per page and page buttons. Enter or clicking elsewhere ends text input; Backspace removes a character and **Clear** clears the search.
-- Right-click empty ground to place the selected unit. Holding and dragging across new cells repeats the selected formation with footprint-aware spacing. The same held cell is not retried every frame. **Single / Horizontal Row / Vertical Row / Square** choose formation; `+` changes its count or size for rows/squares. **Single** always places one and has no count control.
+- Right-click empty ground to place the selected unit. Holding and dragging across new cells repeats the selected formation with footprint-aware spacing. The same held cell is not retried every frame. **Single / Horizontal Row / Vertical Row / Square** choose formation; adjacent `-` and `+` buttons adjust its count or size for rows/squares. Minus stops at one for rows and 2×2 for squares. **Single** always places one and has no count controls.
 - Right-click an existing actor, including an interior cell of a large footprint, for **Inspect / Edit / Move / Copy / Delete**. Existing-unit context takes priority over placing another unit. **Cancel move** cancels a pending move; Escape is not promised as its shortcut.
-- **Zoom - / Zoom +** and the mouse wheel over the editable map use verified native projection (50–200%). Wheel zoom anchors at the pointer; panels, text focus, unit windows, context menus and notices keep scroll priority. Panel scrolls are discarded, never queued for later map zoom. UI size stays fixed; input waits for the next native redraw.
+- **Zoom - / Zoom +** use verified native projection (50–200%). Sandbox does not bind the mouse wheel to zoom. UI size stays fixed; input waits for the next native redraw.
 - **Starting items On/Off** in the right panel controls fresh placements only. Existing actors, copies and restored configurations keep their items.
 - **Clear All Held Items** confirms both teams, including curses/implants. Permanent injuries and spells stay unchanged. It stops on a refusal and reports completed actors separately from an unchanged or unverified failed actor. An item bonus needed by selected spells must be resolved explicitly first.
 - The native battle map is the primary view with the required projection API. **Planning grid** is an explicitly abstract compatibility view. Footprint previews mark blocked and out-of-bounds cells, but remain **partial**: native placement makes the final decision.
@@ -75,7 +75,7 @@ The separate local experiment originally used CoE5SE dev `d96f2b784e97e115022a25
 
 Historical prototype 0.1.0 tests used stock dev `57abc69a2ddb272a5b9049b4a561367066d9d99e` (3.3.0); the pre-existing normal installation had 3.2.2. Neither is evidence of full editor.8 compatibility. The normal installation remains unchanged.
 
-Full stock template contexts, exact scenery/full unit-state persistence, full combat telemetry, campaign initialization/blessings, multiplayer, Linux and Mac editor support remain unavailable or unverified. Native 50/75/100/150/200% geometry and visible wheel/button/Inspect/cell reuse have been checked; exhaustive sustained physical right-drag at every zoom remains unverified. See the reports for the distinction between offline checks, actual native tests and visible UI observations.
+Full stock template contexts, exact scenery/full unit-state persistence, full combat telemetry, campaign initialization/blessings, multiplayer, Linux and Mac editor support remain unavailable or unverified. Native 50/75/100/150/200% geometry and visible zoom-button/Inspect/cell reuse have been checked; exhaustive sustained physical right-drag at every zoom remains unverified. See the reports for the distinction between offline checks, actual native tests and visible UI observations.
 
 - [Test results](docs/TEST-RESULTS.md)
 - [API gaps and review handoff](docs/API-GAPS.md)

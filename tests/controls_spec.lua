@@ -58,18 +58,31 @@ test('starting-item Off affects only fresh actors and keeps copied equipment pol
     assert(fresh.omitStartingItems and not copy.omitStartingItems and same(copy.equipment,original.equipment)and same(f.a,original))
     assert(f.u:toggleStartingItems());local normal=M.add(f.s,13,'Spearman',1,8,4);assert(not normal.omitStartingItems and fresh.omitStartingItems)
 end)
-test('Single removes the count and plus hitbox and ignores a stale number action',function()
+test('Single hides both size controls and ignores stale size actions',function()
     local f=fixture();f.u.n=12;f.u:draw();assert(f.u.n==1)
-    for _,b in ipairs(f.u.buttons)do assert(b.key~='number')end
+    for _,b in ipairs(f.u.buttons)do assert(b.key~='number'and b.key~='numberdown')end
     local saw=false;for _,label in ipairs(f.st.text)do if label=='Single'then saw=true end;assert(label~='Single (1)')end;assert(saw)
     f.u:dispatch('number');assert(f.u.n==1)
+    f.u:dispatch('numberdown');assert(f.u.n==1)
 end)
 test('row counts remain adjustable and Square cycles exactly2/3/4',function()
     local f=fixture();f.u:dispatch('formation');assert(f.u.formation==2 and f.u.n==1)
     f.u:dispatch('number');assert(f.u.n==2);f.u:dispatch('formation');assert(f.u.formation==3 and f.u.n==1)
-    f.u:dispatch('number');assert(f.u.n==2);f.u:dispatch('formation');assert(f.u.formation==4 and f.u.n==2)
+    f.u:dispatch('number');assert(f.u.n==2);f.u:dispatch('numberdown');assert(f.u.n==1)
+    f.u:dispatch('formation');assert(f.u.formation==4 and f.u.n==2)
     for _,n in ipairs({3,4,2})do f.u:dispatch('number');assert(f.u.n==n)end
+    f.u:dispatch('numberdown');assert(f.u.n==2)
+    f.u:dispatch('number');f.u:dispatch('number');assert(f.u.n==4)
+    for _,n in ipairs({3,2,2})do f.u:dispatch('numberdown');assert(f.u.n==n)end
     f.u:dispatch('formation');assert(f.u.formation==1 and f.u.n==1)
+    f.u:dispatch('formation');f.u.n=15
+    for n=14,1,-1 do f.u:dispatch('numberdown');assert(f.u.n==n)end
+    f.u:dispatch('numberdown');assert(f.u.n==1)
+    for _,width in ipairs({800,1136})do for formation=2,4 do
+        f.st.w=width;f.u.formation=formation;f.u:draw();local label,minus,plus
+        for _,b in ipairs(f.u.buttons)do if b.key=='formation'then label=b elseif b.key=='numberdown'then minus=b elseif b.key=='number'then plus=b end end
+        assert(label and minus and plus and label.x+label.w<minus.x and minus.x+minus.w<plus.x and plus.x+plus.w<=width)
+    end end
 end)
 test('new controls fit600px at both widths and stay inside pointer-owned side panels',function()
     for _,w in ipairs({800,1136})do
@@ -240,38 +253,9 @@ test('the full right column owns its left margin and inter-panel gap at every de
         assert(#f.st.zoomCalls==0)
     end end
 end)
-local function wheelFixture()
-    local f=zoomFixture();f.st.wheel=100;f.st.physical=0
-    f.u.api.testFieldPointerWheel=function()return f.st.wheel end
-    f.u.api.testFieldPointerButtons=function()return f.st.physical end
-    return f
-end
-test('map wheel queues bounded native zoom around the pointer without changing actors',function()
-    local f=wheelFixture();local before=M.copy(f.s);f.u:wheelZoom();assert(not f.u.requestedZoom)
-    f.st.wheel=102;f.u:wheelZoom();assert(math.abs(f.u.requestedZoom-1.2)<0.001)
-    zoomWait(f);assert(#f.st.zoomCalls==1 and f.st.zoomCalls[1].x==f.st.x and f.st.zoomCalls[1].y==f.st.y and same(before,f.s))
-end)
-test('scrolling controls and focused editors never changes map zoom or replays discarded wheel steps',function()
-    for _,key in ipairs({'noticeText','searchFocused','editWindow','equipDialog','context','releaseBarrier'})do
-        local f=wheelFixture();f.u:wheelZoom();f.u[key]=key=='editWindow'and{}or true;f.st.wheel=101;f.u:wheelZoom();assert(not f.u.requestedZoom,key)
-        f.u[key]=nil;f.u:wheelZoom();assert(not f.u.requestedZoom,'Discarded scroll replayed')
-        f.st.wheel=102;f.u:wheelZoom();assert(math.abs(f.u.requestedZoom-1.1)<0.001)
-    end
-    for _,point in ipairs({{499,200},{799,350},{10,590},{10,10}})do
-        local f=wheelFixture();f.u:wheelZoom();f.st.x,f.st.y=point[1],point[2];f.st.wheel=101;f.u:wheelZoom();assert(not f.u.requestedZoom)
-    end
-end)
-test('held placement buttons keep their drag and consume wheel baseline without zoom',function()
-    local f=wheelFixture();f.u:wheelZoom();f.st.physical=2;f.st.wheel=101;f.u:wheelZoom();assert(not f.u.requestedZoom)
-    f.st.physical=0;f.u:wheelZoom();assert(not f.u.requestedZoom);f.st.wheel=100;f.u:wheelZoom();assert(math.abs(f.u.requestedZoom-0.9)<0.001)
-end)
-test('wheel counter wraps correctly and unavailable input never synthesizes scroll',function()
-    local f=wheelFixture();f.st.wheel=0xffffffff;f.u:wheelZoom();f.st.wheel=0;f.u:wheelZoom();assert(math.abs(f.u.requestedZoom-1.1)<0.001)
-    f=wheelFixture();f.u:wheelZoom();f.st.wheel=nil;f.u:wheelZoom();assert(not f.u.requestedZoom and f.u.lastWheel==nil)
-    f.st.wheel=500;f.u:wheelZoom();assert(not f.u.requestedZoom)
-end)
-test('first WAIT activates native projection control before later wheel handling',function()
-    local f=wheelFixture();zoomWait(f);assert(#f.st.zoomCalls==1 and f.st.zoomCalls[1].zoom==1)
+test('WAIT keeps button-only native projection control without reading the wheel',function()
+    local f=zoomFixture();f.u.api.testFieldPointerWheel=function()error('Wheel zoom was withdrawn')end
+    zoomWait(f);assert(#f.st.zoomCalls==1 and f.st.zoomCalls[1].zoom==1)
     zoomDraw(f);zoomWait(f);assert(#f.st.zoomCalls==1)
 end)
 print(count..' offline control/confirmation/batch contracts passed; native atomicity and rendering require real-game verification')
