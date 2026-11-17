@@ -1,5 +1,7 @@
 # Verification results — 2026-11-13
 
+**2026-11-17 editor.15:** [Six additional vanilla sieges, exact ordinary build, all-seven siege matrices, representative-map/zoom/log/name/configuration regressions and visible observations](TEST-SIEGE-EXPANSION-2026-11-17.md). Earlier reports retain their own checkpoint boundaries.
+
 **2026-11-17 editor.14:** [Native log overlay, combat/post toggles, exact build and separate offline/native/visible evidence](TEST-LOG-LAYOUT-2026-11-17.md). The editor.13 zoom/fort report below retains its own checkpoint boundary.
 
 **2026-11-17 editor.12:** [Actual Troll/busy-square reproduction, permanent retirement, native button/wheel zoom, in-place unique policy, safe item clearing and exact current-build tests](TEST-EDITOR-CONTROLS-2026-11-17.md). Historical results below retain their original version boundaries.

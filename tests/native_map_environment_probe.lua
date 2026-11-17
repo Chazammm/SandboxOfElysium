@@ -1,6 +1,10 @@
 -- Explicit native API acceptance. Does not run on an ordinary Sandbox launch.
 local api=coe5;local started,fighting=false,false;local out={environment=api.readIni('launcher-context').environment}
 local expected={[5]='farm',[18]='village',[70]='hoburgh',[98]='oasis',[109]='tentvillage'}
+-- Metadata covers the current positive list; this probe's battle loop remains
+-- the five original neutral templates. Full siege acceptance is separate.
+local verified={};for id,name in pairs(expected)do verified[id]=name end
+for id,name in pairs({[1]='palisaden',[20]='stonetower',[72]='woodentower',[22]='greatwall',[23]='citadel',[17]='town',[9]='city'})do verified[id]=name end
 local function equal(a,b)if type(a)~=type(b)then return false end;if type(a)~='table'then return a==b end;for k,v in pairs(a)do if not equal(v,b[k])then return false end end;for k in pairs(b)do if a[k]==nil then return false end end;return true end
 local function save()assert(api.writeIni('results',out))end
 local function test(name,fn)local ok,why=xpcall(fn,tostring);local life=api.testFieldLifecycle();local clean=true;if life and life.open then clean=api.closeTestField()end;out[name]={status=ok and clean~=false and'PASS'or'FAIL',detail=ok and'Actual native API, unmodified native fight and cleanup'or tostring(why)};save()end
@@ -9,9 +13,9 @@ api.wrap('MAIN_MENU_WAIT',function(next,...)
  local v=next(...);if started then return v end;started=true
  test('metadata_verified_contexts_and_unsupported_guards',function()
   local value,why=api.testFieldEnvironmentState();assert(not value and why=='not_open');local info=assert(api.testFieldEnvironmentInfo());assert(info.environmentStateVersion==1 and info.templateContextVersion==1 and #info.templates==59)
-  local ids={};for _,id in ipairs(api.testFieldTerrains())do ids[id]=true end;for id in pairs(expected)do assert(ids[id])end;for _,id in ipairs({1,197,327,158,27,47,103})do assert(not ids[id]);local ok,why=api.openTestField{emptyEditor=true,terrain=id};assert(not ok and why=='unsupported_terrain')end
-  local rows={};for _,t in ipairs(info.terrains)do rows[t.id]=t end;for id in pairs(expected)do assert(rows[id].verifiedTemplateField and not rows[id].verifiedNeutralField and not rows[id].candidateAvailable)end;for _,id in ipairs({0,2,12,107,115,117})do assert(rows[id].verifiedNeutralField and not rows[id].verifiedTemplateField)end
-  local templates={};for _,t in ipairs(info.templates)do templates[t.name]=t end;for id,name in pairs(expected)do local row=templates[name];assert(row.installed and row.verifiedContext);local found=false;for _,i in ipairs(row.verifiedTerrainIds)do if i==id then found=true end end;assert(found)end;assert(not templates.palisaden.verifiedContext and not templates.cavetunnel.verifiedContext)
+  local ids={};for _,id in ipairs(api.testFieldTerrains())do ids[id]=true end;for id in pairs(verified)do assert(ids[id])end;for _,id in ipairs({3,197,327,158,27,47,103})do assert(not ids[id]);local ok,why=api.openTestField{emptyEditor=true,terrain=id};assert(not ok and why=='unsupported_terrain')end
+  local rows={};for _,t in ipairs(info.terrains)do rows[t.id]=t end;for id in pairs(verified)do assert(rows[id].verifiedTemplateField and not rows[id].verifiedNeutralField and not rows[id].candidateAvailable)end;for _,id in ipairs({0,2,12,107,115,117})do assert(rows[id].verifiedNeutralField and not rows[id].verifiedTemplateField)end
+  local templates={};for _,t in ipairs(info.templates)do templates[t.name]=t end;for id,name in pairs(verified)do local row=templates[name];assert(row.installed and row.verifiedContext);local found=false;for _,i in ipairs(row.verifiedTerrainIds)do if i==id then found=true end end;assert(found)end;assert(templates.palisaden.verifiedContext and not templates.cavetunnel.verifiedContext)
  end)
  for _,id in ipairs({5,18,70,98,109})do for _,minimum in ipairs({0,160})do
   test('terrain'..id..'_minimum'..minimum,function()

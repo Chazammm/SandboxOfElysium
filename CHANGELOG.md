@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased local development - editor.15, 2026-11-17
+
+- Add six verified vanilla sieges: Guard tower, Watch Tower, Castle, Citadel, Town and City. Keep Fortified Hoburg and all eleven neutral contexts (eighteen choices total).
+- Reuse native structure provenance, exact restoration, team roles and strict footprint passability. Native parapets are legal where the game allows them; gates reject overlap. Keep names, equipment, magic, zoom and log controls.
+- Separately read/verify native specialized tower context and restore its previous value on close. No modified Extender is bundled. [Tests and limitations](docs/TEST-SIEGE-EXPANSION-2026-11-17.md).
+
 ## Unreleased local development - editor.14, 2026-11-17
 
 - Hide the actual native log overlay during preparation. Keep the existing usable map area and native projection, zoom, pan and placement.

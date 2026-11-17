@@ -1,16 +1,18 @@
-# Installation and testing — editor.14
+# Installation and testing — editor.15
 
-Editor.14 also requires the separate owned-field native log-presentation API. The local launcher builds that source without bundling it with this mod. Setup hides the log; combat and the post-battle field have a labelled Hide/Show control. Missing support shows N/A. [Exact tests](docs/TEST-LOG-LAYOUT-2026-11-17.md).
+Log controls require the separate owned-field native log-presentation API. The local launcher builds that source without bundling it with this mod. Setup hides the log; combat and the post-battle field have a labelled Hide/Show control. Missing support shows N/A. [Exact tests](docs/TEST-LOG-LAYOUT-2026-11-17.md).
+
+Editor.15 also requires the accepted siege policies and specialized native tower-context contract from the separate Extender source. The launcher builds/reuses that source locally. [Current presets, tests and blockers](docs/TEST-SIEGE-EXPANSION-2026-11-17.md).
 
 ## Choose the correct build
 
-The repository contains **0.1.0+editor.14**, an experimental Windows development version for **Conquest of Elysium 5.43 x64**. It includes the mod, documentation and local development tools. It is not a complete first-time player package.
+The repository contains **0.1.0+editor.15**, an experimental Windows development version for **Conquest of Elysium 5.43 x64**. It includes the mod, documentation and local development tools. It is not a complete first-time player package.
 
 The full editor needs additional APIs from a **separately built experimental CoE5SE**. The local release-next experiment is based on the separately submitted 3.4.4 source contribution, with additional environment/minimum-size/bounded-state work. That additional work is not part of PR #2. Unmodified official CoE5SE, including examined dev 3.5.0, does not implement the full editor contract. The Ranged fix alone is also insufficient. A GitHub source ZIP does not install these dependencies.
 
 No CoE5SE files or modified DLL are bundled here. Its [separate license](https://github.com/musical-pianist/coe5se/blob/d96f2b784e97e115022a2598da2c821dd9520135/LICENSE.txt) prohibits including them with a mod. The game, keys and third-party mods are not distributed either. Older prototype test reports do not certify this editor with stock upstream.
 
-The [submitted source-only API PR #2](https://github.com/musical-pianist/coe5se/pull/2) remains separate and unchanged. Local editor.14 additionally needs the release-next and individual-naming API experiments in `SandboxOfElysium-ExtenderLab-next`; the local BAT now defaults explicitly to this separate worktree. Use `-ExtenderSource` for an explicit alternate source. See [current feature/tests/limitations](docs/TEST-RELEASE-NEXT-2026-11-16.md). This is not a public dependency installer.
+The [submitted source-only API PR #2](https://github.com/musical-pianist/coe5se/pull/2) remains separate and unchanged. Local editor.15 additionally needs the release-next and individual-naming API experiments in `SandboxOfElysium-ExtenderLab-next`; the local BAT now defaults explicitly to this separate worktree. Use `-ExtenderSource` for an explicit alternate source. See [current feature/tests/limitations](docs/TEST-RELEASE-NEXT-2026-11-16.md). This is not a public dependency installer.
 
 Current viewport and fortification requirements: [editor.13 report](docs/TEST-ZOOM-FORTIFICATION-2026-11-17.md). The separate experiment additionally provides `battleViewport=1` and `structureProvenance=1`; an older Extender cannot enable the fortified preset.
 

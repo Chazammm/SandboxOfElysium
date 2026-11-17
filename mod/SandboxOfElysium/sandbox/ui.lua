@@ -150,7 +150,7 @@ function U:setupRows()
         {locked and 0 or 15,'Multiple unique units: '..(s.allowMultipleUnique and 'On' or 'Off')..(self:multipleUniqueAvailable() and '' or ' (API unavailable)')},
         {locked and 0 or 17,'Field size: '..Battlefields.sizeLabel(s)..change},
         {locked and 0 or 18,'New units: '..(s.startingItems==false and 'omit starting equipment' or 'normal starting equipment')..change}}
-    if s.terrain==1 then rows[#rows+1]={0,'Siege: Team A attacks; Team B defends. Native structures stay outside the army roster.'}end
+    if M.isSiegeTerrain(s.terrain)then rows[#rows+1]={0,'Siege: Team A attacks; Team B defends. Native structures stay outside the army roster.'}end
     if self.message and self.message~='' then rows[#rows+1]={0,self.message}end
     if self.runtime.blocked then
         rows[#rows+1]={0,'Editing locked. Saved setup preserved; export diagnostics before recovery.'}
@@ -191,7 +191,7 @@ function U:setup()
             self:prepare(true)
         elseif id==4 then self:load()
         elseif id==5 then self:terrainBrowser()
-        elseif id==6 then self:notice('Twelve verified land contexts, including Fortified Hoburg; other native contexts remain unavailable. Size choices require the release-next API and are minimums. '..(Loadout.available(self.api) and 'Equipment and existing base schools up to level 3 are editable. New schools and eye/heart implants are unavailable. ' or 'Equipment and base-school editing need the newer experimental Extender. ')..'Modded Units means a mod-defined unit; modified vanilla units are not identified by that getter. Health/XP/injury-bit restoration needs the release-next API and remains a subset: effects, poison/bleeding and opaque native state are not saved. Complete battle telemetry is unavailable.')
+        elseif id==6 then self:notice(#available..' verified land contexts are available with this Extender; other native contexts remain unavailable. Size choices require the release-next API and are minimums. '..(Loadout.available(self.api) and 'Equipment and existing base schools up to level 3 are editable. New schools and eye/heart implants are unavailable. ' or 'Equipment and base-school editing need the newer experimental Extender. ')..'Modded Units means a mod-defined unit; modified vanilla units are not identified by that getter. Health/XP/injury-bit restoration needs the release-next API and remains a subset: effects, poison/bleeding and opaque native state are not saved. Complete battle telemetry is unavailable.')
         elseif id==7 then self:smallCheck()
         elseif id==9 and self.snapshot then self.scenario=M.copy(self.snapshot);self.message='Pre-battle setup selected; native restoration checked on Prepare'
         elseif id==10 then self:save()
@@ -1378,7 +1378,7 @@ function U:dispatch(action)
             self.scenario=candidate
         end
         self.context=nil;self.moving=nil;self.copyTemplate=nil;self.dragBlocked=true
-        self.message=self.scenario.terrain==1 and 'No army units remain. Native fort structures stay; place either team. A battle needs both teams.' or 'Battlefield is empty. Place units on either team; a battle needs at least one unit per team.'
+        self.message=M.isSiegeTerrain(self.scenario.terrain)and 'No army units remain. Native fort structures stay; place either team. A battle needs both teams.' or 'Battlefield is empty. Place units on either team; a battle needs at least one unit per team.'
         self.diag:record('clear',{units=#self.scenario.units,team_a=M.count(self.scenario,1),team_b=M.count(self.scenario,2)})
     end
     return self.runtime.open

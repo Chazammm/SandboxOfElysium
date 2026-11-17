@@ -1,5 +1,9 @@
 # SandboxOfElysium development journal
 
+## 2026-11-17 - six additional native siege contexts, editor.15
+
+Verified stock Guard tower/Watch Tower/Castle/Citadel/Town/City context, provenance, placement, naturally resolved battles, persistence and cleanup. Existing constructor provenance covers their native gates without new actor exceptions. Added separate readback/validation/restoration of the specialized native tower flag, which changes deployment and wall-cell classification. Kept the original twelve fields and all controls. [Fresh native, offline and visible evidence](docs/TEST-SIEGE-EXPANSION-2026-11-17.md). Earlier failed harness assumptions remain failures. No PR/push/release or binary distribution.
+
 ## 2026-11-17 - native log presentation, editor.14
 
 Completed zoom/Fortified Hoburg first, then verified that native side shading is a log overlay, not reserved map width. The separate owned-field API changes only presentation and restores the old flag on close. Sandbox hides it in setup and adds combat/post Hide/Show with actual-state labels and log input priority. Messages continue while hidden; projection and actor state are unchanged. [Evidence and limitations](docs/TEST-LOG-LAYOUT-2026-11-17.md). No binary distribution, normal-profile edits or submitted-PR changes.

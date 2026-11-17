@@ -37,16 +37,17 @@ function M.validLabel(label)
 end
 -- Identity bindings observed in the loaded vanilla terrain table. Availability
 -- still comes from the separate extender's verified capability list.
-M.terrainNames={[1]='Fortified Hoburg',[0]='Plain',[2]='Forest',[12]='Mountains',[107]='Swamp',[115]='Jungle',[117]='Desert',[5]='Farm',[18]='Village',[70]='Hoburg Village',[98]='Oasis',[109]='Tent Village'}
--- Preset capability requirements augment exact native terrain identity.
--- They never classify individual structures; that comes from native provenance.
-M.terrainRequirements={[1]={structureProvenance=1}}
+M.terrainNames={[1]='Fortified Hoburg',[0]='Plain',[2]='Forest',[12]='Mountains',[107]='Swamp',[115]='Jungle',[117]='Desert',[5]='Farm',[18]='Village',[70]='Hoburg Village',[98]='Oasis',[109]='Tent Village',
+    [20]='Guard tower',[72]='Watch Tower',[22]='Castle',[23]='Citadel',[17]='Town',[9]='City'}
+-- Only verified siege preset identities belong here. This describes the chosen
+-- context; individual structures still require native creation provenance.
+M.siegeTerrains={[1]=true,[20]=true,[72]=true,[22]=true,[23]=true,[17]=true,[9]=true}
+function M.isSiegeTerrain(id)return M.siegeTerrains[id]==true end
 function M.terrainCapabilityAvailable(api,id)
-    local requirements=M.terrainRequirements[id];if not requirements then return true end
+    if not M.isSiegeTerrain(id)then return true end
     if type(api.testFieldEditorCapabilities)~='function'then return false end
     local ok,caps=pcall(api.testFieldEditorCapabilities);if not ok or type(caps)~='table'then return false end
-    for name,version in pairs(requirements)do if caps[name]~=version then return false end end
-    return true
+    return caps.structureProvenance==1
 end
 function M.copy(value)
     if type(value) ~= 'table' then return value end
