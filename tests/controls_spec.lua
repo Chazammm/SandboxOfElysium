@@ -253,9 +253,38 @@ test('the full right column owns its left margin and inter-panel gap at every de
         assert(#f.st.zoomCalls==0)
     end end
 end)
-test('WAIT keeps button-only native projection control without reading the wheel',function()
-    local f=zoomFixture();f.u.api.testFieldPointerWheel=function()error('Wheel zoom was withdrawn')end
-    zoomWait(f);assert(#f.st.zoomCalls==1 and f.st.zoomCalls[1].zoom==1)
+local function wheelFixture()
+    local f=zoomFixture();f.st.wheel=100;f.st.physical=0
+    f.u.api.testFieldPointerWheel=function()return f.st.wheel end
+    f.u.api.testFieldPointerButtons=function()return f.st.physical end
+    return f
+end
+test('map wheel queues bounded native zoom around the pointer without changing actors',function()
+    local f=wheelFixture();local before=M.copy(f.s);f.u:wheelZoom();assert(not f.u.requestedZoom)
+    f.st.wheel=102;f.u:wheelZoom();assert(math.abs(f.u.requestedZoom-1.2)<0.001)
+    zoomWait(f);assert(#f.st.zoomCalls==1 and f.st.zoomCalls[1].x==f.st.x and f.st.zoomCalls[1].y==f.st.y and same(before,f.s))
+end)
+test('scrolling controls and focused editors never changes map zoom or replays discarded wheel steps',function()
+    for _,key in ipairs({'noticeText','searchFocused','editWindow','equipDialog','context','releaseBarrier'})do
+        local f=wheelFixture();f.u:wheelZoom();f.u[key]=key=='editWindow'and{}or true;f.st.wheel=101;f.u:wheelZoom();assert(not f.u.requestedZoom,key)
+        f.u[key]=nil;f.u:wheelZoom();assert(not f.u.requestedZoom,'Discarded scroll replayed')
+        f.st.wheel=102;f.u:wheelZoom();assert(math.abs(f.u.requestedZoom-1.1)<0.001)
+    end
+    for _,point in ipairs({{499,200},{799,350},{10,590},{10,10}})do
+        local f=wheelFixture();f.u:wheelZoom();f.st.x,f.st.y=point[1],point[2];f.st.wheel=101;f.u:wheelZoom();assert(not f.u.requestedZoom)
+    end
+end)
+test('held placement buttons keep their drag and consume wheel baseline without zoom',function()
+    local f=wheelFixture();f.u:wheelZoom();f.st.physical=2;f.st.wheel=101;f.u:wheelZoom();assert(not f.u.requestedZoom)
+    f.st.physical=0;f.u:wheelZoom();assert(not f.u.requestedZoom);f.st.wheel=100;f.u:wheelZoom();assert(math.abs(f.u.requestedZoom-0.9)<0.001)
+end)
+test('wheel counter wraps correctly and unavailable input never synthesizes scroll',function()
+    local f=wheelFixture();f.st.wheel=0xffffffff;f.u:wheelZoom();f.st.wheel=0;f.u:wheelZoom();assert(math.abs(f.u.requestedZoom-1.1)<0.001)
+    f=wheelFixture();f.u:wheelZoom();f.st.wheel=nil;f.u:wheelZoom();assert(not f.u.requestedZoom and f.u.lastWheel==nil)
+    f.st.wheel=500;f.u:wheelZoom();assert(not f.u.requestedZoom)
+end)
+test('first WAIT activates native projection control before later wheel handling',function()
+    local f=wheelFixture();zoomWait(f);assert(#f.st.zoomCalls==1 and f.st.zoomCalls[1].zoom==1)
     zoomDraw(f);zoomWait(f);assert(#f.st.zoomCalls==1)
 end)
 print(count..' offline control/confirmation/batch contracts passed; native atomicity and rendering require real-game verification')

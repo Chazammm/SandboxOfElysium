@@ -31,6 +31,7 @@ function U.new(api)
     self.waitHook=api.wrap('BATTLE_WAIT',function(next,b,m)
         local id=next(b,m)
         if not self.inNativeMenu and (self.phase=='prepare' or self.phase=='after') then
+            self:wheelZoom()
             -- Native drawing is read only even before the original DRAW hook.
             -- Mutate in WAIT, then discard input until a fresh map is drawn.
             self:applyRequestedZoom()
@@ -345,13 +346,31 @@ function U:zoomState()
     if state.minZoom<=0 or state.maxZoom<state.minZoom or state.zoom<state.minZoom or state.zoom>state.maxZoom or state.cellSize<=0 then return nil,'Native zoom readback is invalid.' end
     return state
 end
-function U:requestZoom(direction)
+function U:requestZoom(direction,x,y)
     if self.phase~='prepare' or not self.native or not self.runtime.open or self.runtime.blocked then return false end
     local state,why=self:zoomState();if not state then self:notice(why);return false end
     local target=math.max(state.minZoom,math.min(state.maxZoom,(self.requestedZoom or state.zoom)+direction*0.1))
     self.requestedZoom=target
+    self.requestedZoomAnchor=x and y and {x=x,y=y} or nil
     self.releaseBarrier=true;self.dragBlocked=true;self.lastCell=nil;self.dragOrigin=nil
     return true
+end
+function U:wheelZoom()
+    if type(self.api.testFieldPointerWheel)~='function' or not self.runtime or not self.runtime.open or self.phase~='prepare' then self.lastWheel=nil;return end
+    local ok,current=pcall(self.api.testFieldPointerWheel)
+    if not ok or type(current)~='number' or current%1~=0 then self.lastWheel=nil;return end
+    local previous=self.lastWheel;self.lastWheel=current
+    if previous==nil then return end
+    local delta=(current-previous+0x80000000)%0x100000000-0x80000000
+    if delta==0 then return end
+    -- Every sample advances the baseline, including blocked/UI scrolls. They
+    -- must never be replayed later when the pointer returns to the map.
+    local x,y=self.api.get('uiPointerX'),self.api.get('uiPointerY')
+    if self.inNativeMenu or self.noticeText or self.searchFocused or self.editWindow or self.equipDialog or self.context or self.finalContext or
+        self.runtime.blocked or self.releaseBarrier or self:ownsPointer(x,y) then return end
+    local buttons=self.api.testFieldPointerButtons and self.api.testFieldPointerButtons() or self.api.get('mouseButtons') or 0
+    if buttons==nil or buttons&7~=0 then return end
+    self:requestZoom(math.max(-5,math.min(5,delta)),x,y)
 end
 function U:applyRequestedZoom()
     if self.phase~='prepare' or self.inNativeMenu or not self.native or not self.runtime or not self.runtime.open or self.runtime.blocked or not self:zoomAvailable() then return end
@@ -362,12 +381,12 @@ function U:applyRequestedZoom()
         if self.requestedZoom==nil then self.requestedZoom=self.zoom or 1 end
     end
     if self.requestedZoom==nil then return end
-    local requested=self.requestedZoom;self.requestedZoom=nil
+    local requested=self.requestedZoom;local anchor=self.requestedZoomAnchor;self.requestedZoom=nil;self.requestedZoomAnchor=nil
     self.releaseBarrier=true;self.dragBlocked=true;self.lastCell=nil;self.dragOrigin=nil;self.zoomAwaitingDraw=true
     local state,why=self:zoomState()
     if not state then self.message=why;self:notice(why);return end
     requested=math.max(state.minZoom,math.min(state.maxZoom,requested))
-    local called,accepted,reason=pcall(self.api.setTestFieldZoom,requested,(self.api.get('screenW')-310)/2,self.api.get('screenH')/2)
+    local called,accepted,reason=pcall(self.api.setTestFieldZoom,requested,anchor and anchor.x or (self.api.get('screenW')-310)/2,anchor and anchor.y or self.api.get('screenH')/2)
     if not called or accepted~=true then
         why=tostring(reason or (not called and accepted) or 'Native zoom was refused.')
         self.message='Zoom unchanged: '..why;self:notice(self.message)
@@ -1163,6 +1182,7 @@ function U:prepare(nativeDeployment,reuseVerified)
     if not ok then self:notice(why);return end
     self.scenario=candidate
     self.phase='prepare';self.native=type(self.api.battleView)=='function';self.pending=nil;self.lastMouse=0;self.escapeHeld=false
+    self.lastWheel=nil
     self.diag:record('open_field',{terrain=self.scenario.terrain,native=self.native and 1 or 0,units=#self.scenario.units})
     local success,err=xpcall(function()
         while self.runtime.open do

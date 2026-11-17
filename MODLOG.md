@@ -1,5 +1,9 @@
 # SandboxOfElysium development journal
 
+## 2026-11-17 — retain both formation sizing and wheel zoom
+
+The final clarification requests both controls together. Restored map-only wheel zoom with menu/list/text/editor priority while retaining the adjacent formation minus, clamped at one for rows. Discarded UI scroll steps are never replayed as later map zoom. The temporary wheel removal below remains a historical intermediate state. All 192 current offline cases plus syntax pass; the Extender source and submitted PR remain unchanged.
+
 ## 2026-11-17 — formation-size correction
 
 The user clarified that the intended controls were formation-size plus/minus. Removed Sandbox's wheel-zoom handling and added adjacent minus buttons, clamped at one for rows and 2x2 for squares. Native zoom buttons remain. All 188 current offline cases and syntax checks pass; obsolete wheel-behavior checks were replaced. In the muted isolated game, Horizontal visibly followed 1→2→1→1, with unchanged army counters; scrolling over the map kept zoom at 100%. No battle was started during this follow-up. The separate Extender and submitted PR were unchanged.
