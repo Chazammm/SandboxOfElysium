@@ -358,13 +358,14 @@ function R:build(s,nativeDeployment)
         local ok,ids=pcall(self.api.testFieldTerrains)
         if ok and type(ids)=='table' then for _,id in ipairs(ids) do if id==s.terrain then supported=true end end end
     end
-    if not M.terrainCapabilityAvailable(self.api,s.terrain)then return reject('This fortified preset requires the matching structure-provenance API. Current setup kept.')end
+    if not M.terrainCapabilityAvailable(self.api,s.terrain)then return reject(M.isWaterTerrain(s.terrain)and 'This water preset requires the matching native water-context API. Current setup kept.'or 'This fortified preset requires the matching structure-provenance API. Current setup kept.')end
     if s.terrain~=0 and not supported then return reject((M.terrainNames[s.terrain] or 'This terrain')..' requires the matching experimental terrain API. Current field kept.') end
     if not s.units then return reject('Scenario unit list is missing. Current field kept.') end
     if (M.count(s,1)==0 or M.count(s,2)==0) and not self:emptyEditorAvailable() then
         return reject('Empty teams need the updated experimental empty-editor API. Setup kept; restart with SandboxOfElysium-Testen.bat.')
     end
     for _,u in ipairs(s.units) do
+        local waterProblem=M.waterMonsterProblem(self.api,s.terrain,u.monster);if waterProblem then return reject(waterProblem)end
         if (u.equipment or u.schools) and not Loadout.available(self.api) then return reject('This saved equipment/base-school setup needs the newer experimental Extender. Current army kept.') end
         local m=self.catalog.byId[u.monster]
         if not m or m.name~=u.name then return reject('Required unit is missing or changed. Current field kept.',{name=u.name,monster=u.monster}) end
@@ -419,8 +420,9 @@ function R:_build(s,nativeDeployment)
         local ok,ids=pcall(self.api.testFieldTerrains)
         if ok and type(ids)=='table' then for _,id in ipairs(ids) do if id==s.terrain then supported=true end end end
     end
-    if not M.terrainCapabilityAvailable(self.api,s.terrain)then return false,'This fortified preset requires the matching structure-provenance API. Current setup kept.'end
+    if not M.terrainCapabilityAvailable(self.api,s.terrain)then return false,M.isWaterTerrain(s.terrain)and 'This water preset requires the matching native water-context API. Current setup kept.'or 'This fortified preset requires the matching structure-provenance API. Current setup kept.'end
     if s.terrain~=0 and not supported then return false,(M.terrainNames[s.terrain] or 'This terrain')..' requires the matching experimental terrain API. Current field kept.' end
+    for _,u in ipairs(s.units or{})do local problem=M.waterMonsterProblem(self.api,s.terrain,u.monster);if problem then return false,problem end end
     local closed,closeWhy=self:close()
     if not closed then return false,'Previous test field cleanup failed: '..tostring(closeWhy)..'. Scenario preserved; Export Diagnostics and restart the isolated game.' end
     local a,b={},{}; for _,u in ipairs(s.units) do local list=u.team==1 and a or b; list[#list+1]=u end
@@ -532,7 +534,17 @@ function R:cacheObjects()
         end end
     end
 end
+function R:waterWarning(unit,x,y)
+    if not self.current or not M.isWaterTerrain(self.current.terrain)then return nil end
+    local ok,state=pcall(self.api.testFieldWaterState,unit,x,y)
+    if not ok or type(state)~='table'or state.version~=1 then return 'Native water hazard could not be checked; export diagnostics.'end
+    if self.diag then self.diag:record('water_placement',{native_id=unit,x=x,y=y,cell_water=state.cellWater and 1 or 0,
+        will_drown=state.willDrown and 1 or 0,move_flags=state.moveFlags,scope=state.scope})end
+    if state.ship then return 'Ship/passenger configuration is unsupported here; battle start will be refused.'end
+    if state.willDrown then return 'Water hazard: this unit can drown here under native combat rules.'end
+end
 function R:move(u,x,y)
+    self.lastPlacementWarning=nil
     self.lastConfig=nil
     local good,previous=self:ready(self.current)
     if not good then return false,previous end
@@ -545,6 +557,7 @@ function R:move(u,x,y)
     end
     u.x=x;u.y=y
     if self.current then for _,v in ipairs(self.current.units) do if v.id==u.id then v.x=x;v.y=y end end end
+    self.lastPlacementWarning=self:waterWarning(self.live[u.id],x,y)
     local valid,observed,details=self:check(self.current,true,previous)
     if not valid then return self:quarantine(self.current,observed,self:snapshot(self.lastKnownGood),details) end
     self:accept(self.current,observed)
@@ -552,6 +565,7 @@ function R:move(u,x,y)
     return true
 end
 function R:add(s,monster,team,x,y,template)
+    self.lastPlacementWarning=nil
     if template and template.nativeName~=nil and not Names.available(self.api)then return false,'Copy needs the experimental native-name API. Existing units kept.'end
     self.lastConfig=nil
     local before=self:snapshot(s)
@@ -567,6 +581,7 @@ function R:add(s,monster,team,x,y,template)
     if template and template.baseline and type(self.api.setTestFieldSpells)~='function' then return refused('Copying saved caster configuration requires the experimental editor API. Existing army kept.') end
     local candidate=M.copy(s); local m=self.catalog.byId[monster]
     if not m or (team~=1 and team~=2) then return refused('Invalid unit or team. Existing army kept.') end
+    local waterProblem=M.waterMonsterProblem(self.api,s.terrain,monster);if waterProblem then return refused(waterProblem)end
     if s.allowMultipleUnique and not self:multipleUniqueAvailable() then return refused('Multiple unique units require the updated experimental extender. Existing army kept.') end
     if not s.allowMultipleUnique and (self.api.get('monsterAbility',monster,'unique') or 0)>0 then
         for _,old in ipairs(s.units) do if old.monster==monster then
@@ -617,6 +632,7 @@ function R:add(s,monster,team,x,y,template)
             'Placement failed and the previous positions could not be confirmed. Stop editing and Export Diagnostics.'
     end
     if self.width~=oldWidth then self:cacheObjects() end
+    self.lastPlacementWarning=self:waterWarning(unit,x,y)
     local good,observed,details=self:check(candidate,true,previous)
     if not good then return self:quarantine(s,observed,before,details) end
     self:accept(candidate,observed)

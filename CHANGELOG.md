@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased local development - editor.16, 2026-11-17
+
+- Add verified Coastal Hamlet, Sea and Deep Sea (21 choices total), using actual native water cells, hazards and combat. Keep all18 previous maps and controls.
+- Warn about native drowning; refuse unsupported ship/passenger transport before creation or battle. Keep saved setups and previous reports when native battle start is refused.
+- Separate experimental native water query and verified sea/boat-count cleanup; no Extender binary is bundled. [Tests and manual plan](docs/TEST-WATER-COAST-2026-11-17.md).
+
 ## Unreleased local development - editor.15, 2026-11-17
 
 - Add six verified vanilla sieges: Guard tower, Watch Tower, Castle, Citadel, Town and City. Keep Fortified Hoburg and all eleven neutral contexts (eighteen choices total).

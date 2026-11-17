@@ -1,18 +1,20 @@
-# Installation and testing — editor.15
+# Installation and testing — editor.16
+
+Editor.16 adds **Coastal Hamlet, Sea and Deep Sea**, for **21 verified choices** including all seven sieges. It needs the separate native water-context/query API; ships, boats, passengers and ports remain unavailable. [Current tests, limits and manual plan](docs/TEST-WATER-COAST-2026-11-17.md).
 
 Log controls require the separate owned-field native log-presentation API. The local launcher builds that source without bundling it with this mod. Setup hides the log; combat and the post-battle field have a labelled Hide/Show control. Missing support shows N/A. [Exact tests](docs/TEST-LOG-LAYOUT-2026-11-17.md).
 
-Editor.15 also requires the accepted siege policies and specialized native tower-context contract from the separate Extender source. The launcher builds/reuses that source locally. [Current presets, tests and blockers](docs/TEST-SIEGE-EXPANSION-2026-11-17.md).
+Siege support also requires the accepted siege policies and specialized native tower-context contract from the separate Extender source. The launcher builds/reuses that source locally. [Current presets, tests and blockers](docs/TEST-SIEGE-EXPANSION-2026-11-17.md).
 
 ## Choose the correct build
 
-The repository contains **0.1.0+editor.15**, an experimental Windows development version for **Conquest of Elysium 5.43 x64**. It includes the mod, documentation and local development tools. It is not a complete first-time player package.
+The repository contains **0.1.0+editor.16**, an experimental Windows development version for **Conquest of Elysium 5.43 x64**. It includes the mod, documentation and local development tools. It is not a complete first-time player package.
 
 The full editor needs additional APIs from a **separately built experimental CoE5SE**. The local release-next experiment is based on the separately submitted 3.4.4 source contribution, with additional environment/minimum-size/bounded-state work. That additional work is not part of PR #2. Unmodified official CoE5SE, including examined dev 3.5.0, does not implement the full editor contract. The Ranged fix alone is also insufficient. A GitHub source ZIP does not install these dependencies.
 
 No CoE5SE files or modified DLL are bundled here. Its [separate license](https://github.com/musical-pianist/coe5se/blob/d96f2b784e97e115022a2598da2c821dd9520135/LICENSE.txt) prohibits including them with a mod. The game, keys and third-party mods are not distributed either. Older prototype test reports do not certify this editor with stock upstream.
 
-The [submitted source-only API PR #2](https://github.com/musical-pianist/coe5se/pull/2) remains separate and unchanged. Local editor.15 additionally needs the release-next and individual-naming API experiments in `SandboxOfElysium-ExtenderLab-next`; the local BAT now defaults explicitly to this separate worktree. Use `-ExtenderSource` for an explicit alternate source. See [current feature/tests/limitations](docs/TEST-RELEASE-NEXT-2026-11-16.md). This is not a public dependency installer.
+The [submitted source-only API PR #2](https://github.com/musical-pianist/coe5se/pull/2) remains separate and unchanged. Local editor.16 additionally needs the release-next, individual-naming and water-context API experiments in `SandboxOfElysium-ExtenderLab-next`; the local BAT now defaults explicitly to this separate worktree. Use `-ExtenderSource` for an explicit alternate source. See [current feature/tests/limitations](docs/TEST-RELEASE-NEXT-2026-11-16.md). This is not a public dependency installer.
 
 Current viewport and fortification requirements: [editor.13 report](docs/TEST-ZOOM-FORTIFICATION-2026-11-17.md). The separate experiment additionally provides `battleViewport=1` and `structureProvenance=1`; an older Extender cannot enable the fortified preset.
 
@@ -61,4 +63,4 @@ For individual names: right-click an actor → Edit → Name. Maximum32 Unicode 
 
 ## Verified battlefields in editor.14
 
-Choose **Sandbox → Battlefield → Farm, Village, Hoburg Village, Oasis or Tent Village**, then **Open with native deployment (reposition units)** for a new layout. The six previous terrain choices and all current controls remain available. Saved exact positions still require native verification; scenery may block a cell after rebuilding. **Fortified Hoburg** is now the first verified siege: choose it via the Battlefield selection, then use native deployment for a new layout. Team A attacks; Team B defends. Clear removes the roster while retaining native map structures. Use **Fit** to see the full field and arrows/middle-drag to pan. Other forts/siege variants, sea/coasts and underground contexts remain unavailable. [Tests, exact checkpoint pairing and blockers](docs/TEST-VANILLA-PRESETS-2026-11-16.md).
+Choose **Sandbox -> Battlefield**, select a verified preset, then **Open with native deployment (reposition units)** for an intentionally new layout. **Open battlefield / edit (keep positions)** must verify exact saved cells and refuse incompatible placement. The21 choices include eleven neutral land contexts, seven sieges and Coastal Hamlet/Sea/Deep Sea. Use independent swimmers such as Deep Ones and Tritons for open water; land units can drown under native rules. Ships/passengers and ports are unavailable. For Fortified Hoburg, Guard tower, Watch Tower, Castle, Citadel, Town and City, Team A attacks and Team B defends; walls/gates remain native map structures outside the roster. Clear removes army units, not those structures. Use **Fit** for the whole field and arrows/middle-drag to pan. [Current evidence and combined manual test plan](docs/TEST-WATER-COAST-2026-11-17.md).

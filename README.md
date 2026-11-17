@@ -2,7 +2,7 @@
 
 An experimental Lua sandbox for **Conquest of Elysium 5**. Open **Sandbox** from the main menu, prepare two armies, then fight using the game's native battle AI.
 
-**Current development version: `0.1.0+editor.15`.** See [Installation and testing](INSTALLATION.md). The editor requires additional APIs from a **separate experimental CoE5 Script Extender**. Stock upstream CoE5SE, including examined dev 3.5.0, does not provide the complete editor contract. This repository contains no Extender DLL, game files or third-party mod files. Its source update does not replace the older 0.1.0 prototype package.
+**Current development version: `0.1.0+editor.16`.** See [Installation and testing](INSTALLATION.md). The editor requires additional APIs from a **separate experimental CoE5 Script Extender**. Stock upstream CoE5SE, including examined dev 3.5.0, does not provide the complete editor contract. This repository contains no Extender DLL, game files or third-party mod files. Its source update does not replace the older 0.1.0 prototype package.
 
 **Current controls and lifecycle fix:** [rejected Troll regeneration, in-place unique policy, native button/wheel zoom, item clearing, exact tests and limitations](docs/TEST-EDITOR-CONTROLS-2026-11-17.md). Formation sizes have adjacent minus/plus buttons. This is local development source, with a separate experimental Extender.
 
@@ -14,7 +14,9 @@ All maintained documentation, interface text and future GitHub contributions use
 
 [Current 3.4.4 source contribution stack and test results](docs/TEST-API-CONTRIBUTIONS-2026-11-15.md): five review contributions plus a combined branch, kept separate from this mod. Those are historical preparation results. The combined source contribution was subsequently merged into upstream dev; the newer local APIs remain separate and are not supplied as a binary release.
 
-**Current editor.15:** eighteen verified battlefields, including seven sieges: **Fortified Hoburg, Guard tower, Watch Tower, Castle, Citadel, Town and City**. Team A attacks and Team B defends. Walls/gates remain native structures outside the editable armies. Castle uses the native `greatwall` layout. [Per-map tests and limits](docs/TEST-SIEGE-EXPANSION-2026-11-17.md).
+**Siege checkpoint (editor.15):** eighteen verified battlefields, including seven sieges: **Fortified Hoburg, Guard tower, Watch Tower, Castle, Citadel, Town and City**. Team A attacks and Team B defends. Walls/gates remain native structures outside the editable armies. Castle uses the native `greatwall` layout. [Per-map tests and limits](docs/TEST-SIEGE-EXPANSION-2026-11-17.md).
+
+**Current water increment (editor.16):** **Coastal Hamlet, Sea and Deep Sea** bring the total to **21 verified choices**. Native water hazards and independent actors are supported; ships, boats, passengers and ports remain unavailable. [Exact evidence, limits and a combined water/siege manual test plan](docs/TEST-WATER-COAST-2026-11-17.md).
 
 ## Test on the existing development computer
 

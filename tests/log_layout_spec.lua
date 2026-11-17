@@ -68,6 +68,14 @@ test('each fight shows the native log once even if preparation or the previous f
     assert(u:fight()and #t.writes==1 and t.writes[1]==true and u.phase=='after'and not t.visible)
     u.phase='prepare';u.runtime.phase=nil;assert(u:fight()and #t.writes==2 and t.writes[2]==true and t.fights==2 and same(original,u.scenario))
 end)
+test('native battle refusal returns to the unchanged editor without a final report',function()
+    local u,t,api=fixture();local original=M.copy(u.scenario);local old={summary='previous completed report'};u.report.result=old
+    u.report.archive=function()error('Refused battles must not be archived')end
+    api.fightTestField=function()return false,'water_transport_unavailable'end
+    assert(not u:fight()and u.phase=='prepare'and u.snapshot==nil and same(original,u.scenario))
+    assert(t.started==1 and not t.finished and u.report.result==old and not t.visible)
+    assert(u.noticeText:find('passenger transport',1,true))
+end)
 test('combat draw contains only a labelled presentation button outside actual native log and speed areas',function()
     for _,w in ipairs({800,1136})do
         local u,t=fixture();t.w=w;u.phase='fight';draw(u,t)

@@ -51,7 +51,7 @@ function D:snapshot(s,runtime)
     if runtime.open and type(self.api.testFieldEnvironmentState)=='function'then
         local ok,value,why=pcall(self.api.testFieldEnvironmentState)
         if ok and type(value)=='table'then
-            for _,key in ipairs({'version','plane','ground','temperature','fortParts','nativeTemplate','nativeTemplateObserved','customMapReplaced','setupReturned','atSea','siege','underground','scope'})do
+            for _,key in ipairs({'version','plane','ground','temperature','fortParts','nativeTemplate','nativeTemplateObserved','customMapReplaced','setupReturned','atSea','boatCountA','boatCountB','siege','tower','underground','scope'})do
                 local v=value[key];out.summary['environment_'..key]=type(v)=='boolean'and(v and 1 or 0)or v
             end
         else out.summary.environment_result=tostring(why or value)end

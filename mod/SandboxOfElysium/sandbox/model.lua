@@ -38,16 +38,38 @@ end
 -- Identity bindings observed in the loaded vanilla terrain table. Availability
 -- still comes from the separate extender's verified capability list.
 M.terrainNames={[1]='Fortified Hoburg',[0]='Plain',[2]='Forest',[12]='Mountains',[107]='Swamp',[115]='Jungle',[117]='Desert',[5]='Farm',[18]='Village',[70]='Hoburg Village',[98]='Oasis',[109]='Tent Village',
-    [20]='Guard tower',[72]='Watch Tower',[22]='Castle',[23]='Citadel',[17]='Town',[9]='City'}
+    [20]='Guard tower',[72]='Watch Tower',[22]='Castle',[23]='Citadel',[17]='Town',[9]='City',[78]='Coastal Hamlet',[27]='Sea',[68]='Deep Sea'}
 -- Only verified siege preset identities belong here. This describes the chosen
 -- context; individual structures still require native creation provenance.
 M.siegeTerrains={[1]=true,[20]=true,[72]=true,[22]=true,[23]=true,[17]=true,[9]=true}
 function M.isSiegeTerrain(id)return M.siegeTerrains[id]==true end
+M.waterTerrains={[78]=true,[27]=true,[68]=true}
+function M.isWaterTerrain(id)return M.waterTerrains[id]==true end
 function M.terrainCapabilityAvailable(api,id)
+    if M.isWaterTerrain(id)then
+        if type(api.testFieldEnvironmentInfo)~='function'or type(api.testFieldWaterState)~='function'then return false end
+        local ok,info=pcall(api.testFieldEnvironmentInfo)
+        if not ok or type(info)~='table'or info.waterContextVersion~=1 then return false end
+    end
     if not M.isSiegeTerrain(id)then return true end
     if type(api.testFieldEditorCapabilities)~='function'then return false end
     local ok,caps=pcall(api.testFieldEditorCapabilities);if not ok or type(caps)~='table'then return false end
     return caps.structureProvenance==1
+end
+function M.waterMonsterProblem(api,terrain,monster)
+    if not M.isWaterTerrain(terrain)then return nil end
+    local ok,transport=pcall(function()
+        local flags=api.get('monsterMoveFlags',monster)
+        assert(type(flags)=='number'and math.type(flags)=='integer')
+        if flags&(1<<40)~=0 then return true end
+        for _,ability in ipairs({0x1cf,0x1d2,0x1d3})do
+            local value=api.get('monsterAbility',monster,ability);assert(type(value)=='number')
+            if value>0 then return true end
+        end
+        return false
+    end)
+    if not ok then return 'Water transport compatibility is unknown. Current setup kept.'end
+    if transport then return 'Ships, boats and passenger transport are not supported in these water presets yet. Current setup kept.'end
 end
 function M.copy(value)
     if type(value) ~= 'table' then return value end

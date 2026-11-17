@@ -151,6 +151,9 @@ function U:setupRows()
         {locked and 0 or 17,'Field size: '..Battlefields.sizeLabel(s)..change},
         {locked and 0 or 18,'New units: '..(s.startingItems==false and 'omit starting equipment' or 'normal starting equipment')..change}}
     if M.isSiegeTerrain(s.terrain)then rows[#rows+1]={0,'Siege: Team A attacks; Team B defends. Native structures stay outside the army roster.'}end
+    if M.isWaterTerrain(s.terrain)then
+        rows[#rows+1]={0,'Native water: units without flight, swimming or floating can drown. Ships/passengers are not supported.'}
+    end
     if self.message and self.message~='' then rows[#rows+1]={0,self.message}end
     if self.runtime.blocked then
         rows[#rows+1]={0,'Editing locked. Saved setup preserved; export diagnostics before recovery.'}
@@ -243,7 +246,7 @@ function U:templateCatalogue()
     local page=1
     while true do
         local rows={{0,#templates..' stock template names examined; a file is not proof of a playable native context.'},
-            {0,'Sieges, water, other planes and unlisted variants remain unavailable.'},
+            {0,'Use verified presets. Ports, ship/passenger transport and unlisted contexts remain unavailable.'},
             {section='Templates: page '..page..' / '..math.max(1,math.ceil(#templates/6))}}
         for i=(page-1)*6+1,math.min(page*6,#templates)do local row=templates[i]
             rows[#rows+1]={0,row.name..' | '..(row.installed and ('stored canvas '..tostring(row.storedWidth)..' x '..tostring(row.storedHeight))or'not installed')}
@@ -1206,9 +1209,22 @@ function U:fight()
         if not shown then self:notice(reason);return false end
     end
     self.diag:record('battle_start',{units=#self.scenario.units,terrain=self.scenario.terrain})
+    local previousSnapshot,previousContext,previousMoving=self.snapshot,self.context,self.moving
+    local previousReport={};for key,value in pairs(self.report)do previousReport[key]=value end
     ConfigWindow.close(self);self.selectedItem=nil
     self.snapshot=M.copy(self.scenario);self.phase='fight';self.context=nil;self.moving=nil;self.buttons={};self.logLastMouse=0;self.logHeldTail=nil;self.logMessage=nil;self.requestedLogVisible=nil
-    self.report:start(self.scenario,self.runtime);self.api.fightTestField();self.report:finish(self.scenario,self.runtime)
+    self.report:start(self.scenario,self.runtime)
+    local fought,refusal=self.api.fightTestField()
+    if fought==false then
+        for key in pairs(self.report)do self.report[key]=nil end;for key,value in pairs(previousReport)do self.report[key]=value end
+        self.snapshot=previousSnapshot;self.context=previousContext;self.moving=previousMoving;self.phase='prepare'
+        if self:logAvailable()then self:setLogVisibility(false,'battle refused; editor restored')end
+        local healthy,why=self.runtime:ready(self.scenario)
+        local message=refusal=='water_transport_unavailable'and 'Ships, boats and passenger transport are not supported here yet. Setup kept.'or('Battle start refused: '..tostring(refusal)..'. Setup kept.')
+        self.diag:record('battle_refused',{reason=tostring(refusal),setup_verified=healthy and 1 or 0})
+        self:notice(healthy and message or why);return false
+    end
+    self.report:finish(self.scenario,self.runtime)
     self.phase='after';self.runtime.phase='after';self.native=true;self.finalContext=nil
     self.finalPlan=FinalView.prepare(self.runtime.finalState)
     local reportName,archiveWarning=self.report:archive()
@@ -1281,19 +1297,19 @@ function U:dispatch(action)
     if type(action)=='table' then
         if action.equip then local u=ConfigWindow.find(self,action.model_id);if u then ConfigWindow.give(self,u)end
         elseif action.openConfig then local u=ConfigWindow.find(self,action.openConfig);if u then ConfigWindow.open(self,u)end
-        elseif action.move then local ok,why=self.runtime:move(self.moving,action.x,action.y);self.message=ok and 'Moved; configuration preserved' or why;if ok then self.moving=nil;self.dragBlocked=true end
+        elseif action.move then local ok,why=self.runtime:move(self.moving,action.x,action.y);self.message=ok and(self.runtime.lastPlacementWarning or 'Moved; configuration preserved')or why;if ok then self.moving=nil;self.dragBlocked=true end
         elseif action.place then
             if self.selected==nil then self.message='Select a unit before placing.';return true end
-            local skipped,placed,lastReason=0,0,nil
+            local skipped,placed,lastReason,waterWarning=0,0,nil,nil
             local footprint=self:placementFootprint();local anchors,why=self:placementAnchors(action.x,action.y,footprint)
             if not anchors then self.message=why;return true end
             for _,c in ipairs(anchors) do
                 local ok,candidate=self.runtime:add(self.scenario,self.selected,self.team,c.x,c.y,self.copyTemplate)
-                if ok then self.scenario=candidate;placed=placed+1 else skipped=skipped+1;lastReason=candidate end
+                if ok then self.scenario=candidate;placed=placed+1;waterWarning=waterWarning or self.runtime.lastPlacementWarning else skipped=skipped+1;lastReason=candidate end
                 if self.runtime.blocked then self.context=nil;self.moving=nil;self.copyTemplate=nil;break end
                 if not self.runtime.open then self:notice(candidate);return false end
             end
-            self.message='Placed '..placed..'; skipped '..skipped..(lastReason and '. '..lastReason or '')
+            self.message='Placed '..placed..'; skipped '..skipped..(lastReason and '. '..lastReason or '')..(waterWarning and '. '..waterWarning or '')
             self.diag:record('formation',{kind=kinds[self.formation],count=self.n,placed=placed,skipped=skipped,team=self.team,
                 footprint_width=footprint and footprint.width or 'unknown',footprint_height=footprint and footprint.height or 'unknown',
                 footprint_source=footprint and footprint.source or 'unavailable',spacing='footprint-positive-xy'})
