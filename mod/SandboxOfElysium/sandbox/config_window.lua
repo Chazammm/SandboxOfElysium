@@ -101,6 +101,7 @@ function W.items(self)
 end
 function W.drawCatalog(self,p)
     local ui=self.api.ui;local values=W.items(self);local focused=self.searchFocused and self.textTarget=='items'
+    local drawItem=ui.drawItemSprite or ui.drawItemIconFit
     local label=(self.itemSearch or '')=='' and (focused and 'Type to search items...' or 'Search items...') or trim(self.itemSearch,28)
     self.searchRect={x=p+8,y=285,w=234,h=27}
     self:button('search',label..(focused and ' |' or ''),p+8,285,234,27,focused and {0.16,0.31,0.43} or nil)
@@ -111,7 +112,7 @@ function W.drawCatalog(self,p)
     for row=1,5 do local index=((self.itemPage or 1)-1)*5+row;local item=values[index];local y=251-row*36
         if item then
             ui.drawRect(p+8,y,284,34,0.13,0.17,0.20,0.98)
-            local drawn=type(ui.drawItemIconFit)=='function' and ui.drawItemIconFit(p+11,y+3,32,28,item.id)
+            local drawn=drawItem and drawItem(p+11,y+3,32,28,item.id)
             if not drawn then text(self,p+20,y+10,12,'?')end
             text(self,p+50,y+21,10,trim(item.name,34))
             text(self,p+50,y+6,9,'#'..item.id..' '..(L.slotNames[item.slot] or '?')..(item.origin and item.origin.modded and ' [Mod]' or ''))
@@ -223,6 +224,7 @@ function W.draw(self)
 end
 function W.drawSlots(self,u,state,w)
     local x,top=w.x,w.y+w.h;local slots={}
+    local ui=self.api.ui;local drawItem=ui.drawItemSprite or ui.drawItemIconFit
     for _,row in ipairs(state.items)do if row.slotType>0 or row.id>=0 then slots[#slots+1]=row end end
     text(self,x+12,top-82,10,'Pick an item on the right, then right-click a unit to give it.')
     local perPage=math.max(1,math.min(6,math.ceil((w.h-194)/42)))
@@ -230,7 +232,7 @@ function W.drawSlots(self,u,state,w)
     for i=1,perPage do local slot=slots[(w.slotPage-1)*perPage+i];local y=top-132-(i-1)*42
         if slot and y>w.y+62 then
             local item=slot.id>=0 and self.catalog.byItemId[slot.id]
-            if item and type(self.api.ui.drawItemIconFit)=='function' then self.api.ui.drawItemIconFit(x+12,y+4,28,28,item.id)end
+            if item and drawItem then drawItem(x+12,y+4,28,28,item.id)end
             text(self,x+45,y+24,10,'#'..(slot.position+1)..' '..(L.slotNames[slot.slotType] or 'Unavailable'))
             text(self,x+45,y+9,10,trim(slot.name or '(empty)',math.floor((w.w-165)/6))..(slot.cursed and ' [cursed]' or ''))
             if item then

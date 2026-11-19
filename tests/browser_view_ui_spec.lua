@@ -70,7 +70,12 @@ local function press(u,t,b)
 end
 test('View and Select have disjoint visible click targets and preserved sprite alignment at both widths',function()
     for _,width in ipairs({800,1136})do
-        local u,t=fixture(width);t.x=width-100;u:draw();assert(#t.icons==5)
+        local u,t,api=fixture(width)
+        if width==1136 then
+            api.ui.drawMonsterSprite=api.ui.drawMonsterIconFit
+            api.ui.drawMonsterIconFit=function()error('Current upstream sprite helper should take priority')end
+        end
+        t.x=width-100;u:draw();assert(#t.icons==5)
         for index=1,5 do
             local row=u.filtered[index];local view=button(u,'view:'..row.id);local select=button(u,'unit:'..index)
             assert(not overlap(view,select)and view.y==select.y and view.x+view.w<=select.x)

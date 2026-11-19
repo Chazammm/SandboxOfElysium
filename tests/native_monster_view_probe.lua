@@ -5,6 +5,7 @@ local api=coe5
 local M=require('sandbox.model');local U=require('sandbox.ui');local L=require('sandbox.loadout')
 local request=api.readIni('request');if not request or not request.run then return end
 local started,ui,fighting=false,nil,false
+local prepareView
 local out={environment=(api.readIni('launcher-context')or{}).environment}
 local function equal(a,b)
     if type(a)~=type(b)then return false end;if type(a)~='table'then return a==b end
@@ -19,6 +20,9 @@ local function healthy()
 end
 api.wrap('BATTLE_WAIT',function(next,...)
     local value=next(...)
+    if prepareView then
+        local apply=prepareView;prepareView=nil;apply()
+    end
     if fighting and value==0 and(api.get('battleDelay')or 0)>2 then return 1 end
     return value
 end)
@@ -40,6 +44,17 @@ api.wrap('MAIN_MENU_WAIT',function(next,...)
         local accepted,observed=ui.runtime:check(s);assert(accepted,observed);ui.runtime:accept(s,observed)
         out.existing_configuration={name_a=a.nativeName,name_unique=devil.nativeName,held_item='Amulet of Anti Magic',explicitly_deselected_spell=removedSpell}
         healthy();api.drawTestField()
+        local width,height=api.get('screenW'),api.get('screenH')
+        prepareView=function()
+            assert(api.setTestFieldViewport{x=10,y=40,width=width-320,height=height-80})
+            assert(api.fitTestFieldViewport())
+            assert(api.setTestFieldZoom(1.25))
+            assert(api.panTestFieldViewport(-100,-30))
+        end
+        api.drawTestField();assert(not prepareView)
+        api.drawTestField()
+        local viewport=assert(api.testFieldViewport())
+        assert(viewport.zoom>1 and #healthy().units==3)
         for _,case in ipairs({{'bad_monster',-1,nil},{'unexpected_options',13,{}}})do
             local before=healthy();local life=api.testFieldLifecycle();local last=api.get('unitLastIndex')
             local shown,reason,detail=api.inspectTestFieldMonster(case[2],case[3])
@@ -67,6 +82,7 @@ api.wrap('MAIN_MENU_WAIT',function(next,...)
             assert(detail.instanceCreated and detail.temporaryInstance and not detail.startingItemsIncluded and not detail.futureInstanceSpellsVerified)
             assert(equal(encoded,M.encode(s,ui.catalog.mods))and equal(before,healthy()),'Native preview changed the scenario or field')
             assert(equal(life,api.testFieldLifecycle())and last==api.get('unitLastIndex'),'Native preview consumed lifecycle/allocator state')
+            assert(equal(viewport,api.testFieldViewport()),'Native card changed the fitted and panned editor view')
             assert(ui.selected==selected and not ui.runtime.blocked and #s.units==3)
             out[name]=flat(detail);out[name].status='PASS';out[name].name=ui.catalog.byId[id].name
             if name=='modded'then out[name].definition_mod=mod.definitionMod end
@@ -77,7 +93,7 @@ api.wrap('MAIN_MENU_WAIT',function(next,...)
         local x,y=devil.x,devil.y;local added,replaced,unit=ui.runtime:add(s,unique,1,x,y);assert(added,replaced);s=replaced;ui.scenario=s;healthy()
         assert(unit.monster==unique and #s.units==3,'Unique availability was consumed by viewing')
         out.unique_availability={status='PASS',repeated_views=uniqueViews,existing_unique_unchanged=1,delete_then_readd=1}
-        if request.run.only=='postview'then
+        if request.run.only=='postview'or request.run.only=='all_postview'then
             local frozen=M.encode(s,ui.catalog.mods);assert(api.writeIni('native-view-kept-setup',frozen))
             local loaded,reason=M.decode(api.readIni('native-view-kept-setup'),ui.catalog,ui.catalog.mods);assert(loaded,reason)
             assert(ui.runtime:build(loaded,false));ui.scenario=loaded;s=loaded;healthy()

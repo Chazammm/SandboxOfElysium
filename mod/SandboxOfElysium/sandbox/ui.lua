@@ -835,6 +835,7 @@ end
 function U:draw()
     if self.clearBusy then return ClearBattlefield.draw(self)end
     local api,ui=self.api,self.api.ui;local W,H=api.get('screenW'),api.get('screenH');local p=W-300
+    local drawMonster=ui.drawMonsterSprite or ui.drawMonsterIconFit
     self:readLogState()
     self.buttons={};self.grid=nil;self.previewInfo=nil
     self.view=self.native and type(api.battleView)=='function' and api.battleView() or nil
@@ -848,7 +849,7 @@ function U:draw()
                     local color=M.colors[self.scenario.colors[entry.team]]
                     ui.drawRect(x-size/2,y-size/2,w-1,h-1,color[2],color[3],color[4],0.72)
                 end
-                if type(ui.drawMonsterIconFit)=='function' then ui.drawMonsterIconFit(x-size/2+1,y-size/2+1,w-2,h-2,entry.monster) end
+                if drawMonster then drawMonster(x-size/2+1,y-size/2+1,w-2,h-2,entry.monster) end
             end
         end
     end
@@ -1015,7 +1016,7 @@ function U:draw()
         if item then
             ui.drawRect(p+8,y,284,34,0.13,0.17,0.20,0.98)
             ui.drawRect(p+10,y+2,34,30,0.065,0.085,0.10,1)
-            local drawn=type(ui.drawMonsterIconFit)=='function' and ui.drawMonsterIconFit(p+11,y+3,32,28,item.id)
+            local drawn=drawMonster and drawMonster(p+11,y+3,32,28,item.id)
             if not drawn then ui.drawText(p+20,y+10,12,'?',0.65,0.7,0.75,1) end
             ui.drawText(p+50,y+20,10,Catalog.textLimit(item.name,20,'...'),1,0.95,0.85,1)
             ui.drawText(p+50,y+6,9,'#'..item.id..' | A '..M.count(self.scenario,1,item.id)..' / B '..M.count(self.scenario,2,item.id),0.7,0.75,0.8,1)
@@ -1025,7 +1026,7 @@ function U:draw()
     end
     if #self.filtered==0 then ui.drawText(p+18,208,12,'No matching units. Clear search or filter.',0.95,0.85,0.65,1) end
     self:button('prev','<',p+8,42,40,25);self:button('next','>',p+252,42,40,25)
-    ui.drawText(p+65,50,11,self.page..' / '..math.max(1,math.ceil(#self.filtered/5))..(type(ui.drawMonsterIconFit)=='function' and '' or ' | icon API missing'),0.8,0.8,0.8,1)
+    ui.drawText(p+65,50,11,self.page..' / '..math.max(1,math.ceil(#self.filtered/5))..(drawMonster and '' or ' | icon API missing'),0.8,0.8,0.8,1)
     if UnitView.nativeAvailable(api)then
         ui.drawText(p+8,344,8,'View: native preview; no starting items.',0.85,0.87,0.80,1)
         ui.drawText(p+8,354,8,'Random spells may differ when placed.',0.85,0.87,0.80,1)

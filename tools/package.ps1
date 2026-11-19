@@ -8,7 +8,9 @@ $zip=Join-Path $out ('SandboxOfElysium-'+$version+'.zip')
 if(Test-Path -LiteralPath $zip){throw "Package already exists and was kept: $zip"}
 $runtime=Join-Path $root 'mod/SandboxOfElysium'
 $modules=Join-Path $runtime 'sandbox'
-$docs=@('README.md','INSTALLATION.md','CHANGELOG.md','LICENSE','VERSION','docs/COMPATIBILITY.md','docs/TEST-RELEASE-CANDIDATE-2026-11-19.md')
+$docs=@('README.md','INSTALLATION.md','CHANGELOG.md','LICENSE','VERSION','docs/COMPATIBILITY.md',
+    'docs/TEST-RELEASE-CANDIDATE-2026-11-19.md','docs/TEST-COMBINED-PRESENTATION-2026-11-19.md',
+    'docs/TEST-BATTLEFIELD-OBJECTS-2026-11-19.md','docs/COE5SE-API-DEPENDENCIES-2026-11-19.md')
 $files=[ordered]@{}
 foreach($path in $docs){$files[$path]=Join-Path $root $path}
 foreach($name in @('SandboxOfElysium.c5m','SandboxOfElysium.lua','banner.tga')){$files[('SandboxOfElysium/'+$name)]=Join-Path $runtime $name}

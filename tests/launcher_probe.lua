@@ -17,7 +17,7 @@ if type(coe5.testFieldEditorCapabilities)=='function' then
     end
 end
 if type(coe5.setTestFieldTextFocus)=='function' and type(coe5.takeTestFieldTextEvents)=='function' then status.inline_input='1' end
-if type(coe5.ui.drawMonsterIconFit)=='function' then status.fitted_icons='1' end
+if type(coe5.ui.drawMonsterSprite or coe5.ui.drawMonsterIconFit)=='function' then status.fitted_icons='1' end
 if type(coe5.testFieldFinalState)=='function' and type(coe5.inspectTestFieldFinalUnit)=='function' then status.final_snapshot_api='1' end
 for i=0,coe5.get('modLastIndex') do
     if coe5.get('modName',i)=='SandboxOfElysium' and coe5.get('modEnabled',i)~=0 then status.sandbox='1' end

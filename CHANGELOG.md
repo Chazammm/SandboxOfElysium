@@ -5,6 +5,8 @@
 - Prepare the non-naval Sandbox candidate with native unit View, amber placement preview and the guarded exact deployment fix for the 61-unit Guard Tower scenario.
 - Keep the 21 supported land, siege and water choices with independent actors. Fleet saves explain why their ship and passenger setup cannot be opened.
 - Gate editor startup on compatible retirement and restoration capabilities. Keep the mod package separate from the Extender and all private test data.
+- Verify native unit View, zoom, Fit, pan and battle centering on the upstream-based Windows review stack. Reuse upstream fitted unit and item sprites.
+- Label neutral scenery and fixed defender structures separately. Preserve native siege ownership, roster counts and exact deployment.
 
 ## Unreleased local development - editor.16, 2026-11-17
 

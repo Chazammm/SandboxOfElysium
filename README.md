@@ -2,7 +2,7 @@
 
 Configure two armies in Conquest of Elysium 5 and watch them fight using the game's native AI. This is the non-naval review candidate for Windows CoE5 5.43 x64.
 
-**Dependency status.** The full editor requires additional owned test-field APIs. Official CoE5SE 3.6.0 includes the first editor contribution, but the protective compatibility check keeps this candidate's editor closed on that build. The full candidate was tested with a separate local Extender reference build. Public release is pending upstream support for the required APIs and verification of the resulting build. See [installation](INSTALLATION.md) and [compatibility](docs/COMPATIBILITY.md).
+**Dependency status.** The full editor requires additional owned test-field APIs. The compatibility check keeps this candidate's editor closed on stock CoE5SE 3.6.0. The separate upstream-based Windows review build now includes the remaining View and viewport APIs. Public release is pending upstream support and verification of the resulting official build. See [installation](INSTALLATION.md) and [compatibility](docs/COMPATIBILITY.md).
 
 - Choose a land, siege or water battlefield and a native or minimum field size. Sea, Deep Sea and Coastal Hamlet support independent units. Native drowning rules apply.
 - Search vanilla and active mod units, use **View** to open the native unit card, and place units with the editor's footprint checks. Both armies can be empty during setup.
@@ -15,4 +15,4 @@ The mod is MIT licensed. Thanks to Illwinter for CoE5 and musical_pianist for Co
 
 [Release candidate tests and known limits](docs/TEST-RELEASE-CANDIDATE-2026-11-19.md) · [Changelog](CHANGELOG.md)
 
-For the follow-up branch, see the [battlefield object audit](docs/TEST-BATTLEFIELD-OBJECTS-2026-11-19.md) and [upstream API dependencies](docs/COE5SE-API-DEPENDENCIES-2026-11-19.md).
+See the [combined-build results](docs/TEST-COMBINED-PRESENTATION-2026-11-19.md), [battlefield object audit](docs/TEST-BATTLEFIELD-OBJECTS-2026-11-19.md) and [upstream API dependencies](docs/COE5SE-API-DEPENDENCIES-2026-11-19.md).

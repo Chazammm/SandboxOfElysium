@@ -3,6 +3,7 @@
 | Pairing | Status |
 | --- | --- |
 | CoE5 5.43 x64 on Windows with the local non-naval reference build | Full candidate test pairing. See the [test report](TEST-RELEASE-CANDIDATE-2026-11-19.md) for the exact inputs and coverage. |
+| CoE5 5.43 x64 on Windows with the separately built upstream review stack | Current candidate pairing. See the [combined-build report](TEST-COMBINED-PRESENTATION-2026-11-19.md) for source revisions and verification. The version number alone does not identify this build. |
 | Official CoE5SE 3.6.0, dev `b9cd9453912d92474c41eb51240683039292dd0a` | Includes the merged first test-field contribution. The full editor remains unavailable because the candidate depends on additional safety and feature APIs. |
 | Earlier CoE5SE, Mac, Linux, other game executables, multiplayer | No full-candidate acceptance. Use the tested Windows pairing for local review. |
 
@@ -17,7 +18,7 @@ The first merged contribution implements the owned test-field lifecycle and basi
 | Native unit type View | Make a verified temporary preview for the real game card. Random spells in a preview are examples. Starting items are omitted. |
 | Presentation | Native zoom, Fit/pan/centering, preview feedback and native combat-log visibility. |
 
-The local upstream review candidates cover the first permanent-retirement and width changes. Other groups still require upstream ports and integration testing. The local reference build and upstream candidates are different builds.
+The upstream review stack covers these groups in separate Extender commits. The viewport and unit-type View use the verified native ABI with Clang 23 on Windows. The local reference and upstream review stack have separate evidence. See the [API dependency map](COE5SE-API-DEPENDENCIES-2026-11-19.md).
 
 Save schema 4 records exact positions and supported configuration. Older schemas can be loaded, with missing fields represented by native defaults and migration to a new copy. Required loaded content is checked. Incompatible or missing items, spells, mods or API contracts can prevent reconstruction. A fresh unit with a different permanent implant may refuse exact restore. The editor does not reroll a saved loadout or spell selection to make it fit.
 
