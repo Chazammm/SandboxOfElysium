@@ -5,6 +5,7 @@ local Report=require('sandbox.report')
 local Diagnostics=require('sandbox.diagnostics')
 local Preview=require('sandbox.preview')
 local FinalView=require('sandbox.final_view')
+local FieldObjects=require('sandbox.battlefield_objects')
 local Loadout=require('sandbox.loadout')
 local LoadoutUI=require('sandbox.loadout_ui')
 local ConfigWindow=require('sandbox.config_window')
@@ -818,6 +819,19 @@ function U:ownsPointer(x,y)
     local rect=self:usableViewport()
     return x<rect.x or y<rect.y or x>=rect.x+rect.width or y>=rect.y+rect.height
 end
+function U:drawFieldObject(row,role,maxX,minY)
+    local label=FieldObjects.label(role,row.owner)
+    if not label then return end
+    local api=self.api
+    local monster=self.catalog.byId[row.monster]
+    local name=monster and monster.name or 'Battlefield feature'
+    local width=math.min(242,maxX-10)
+    local x=math.max(5,math.min(maxX-width-5,api.get('uiPointerX')+14))
+    local y=math.max(minY,math.min(api.get('screenH')-97,api.get('uiPointerY')+14))
+    api.ui.drawRect(x,y,width,44,0.025,0.04,0.05,0.97)
+    api.ui.drawText(x+8,y+25,12,Catalog.textLimit(name,30,'...'),1,0.94,0.73,1)
+    api.ui.drawText(x+8,y+9,10,label,0.82,0.87,0.9,1)
+end
 function U:draw()
     if self.clearBusy then return ClearBattlefield.draw(self)end
     local api,ui=self.api,self.api.ui;local W,H=api.get('screenW'),api.get('screenH');local p=W-300
@@ -934,6 +948,12 @@ function U:draw()
     ui.drawText(10,22,10,hint,1,1,0.9,1)
     ui.drawText(10,5,10,self.message:sub(1,112),0.95,0.76,0.45,1)
     if self.phase=='after' then
+        if gx and self.finalPlan and not self.finalContext then
+            local entry=self.finalPlan.objects and self.finalPlan.objects[gx..':'..gy]
+            if entry and not FinalView.at(self.finalPlan,gx,gy) then
+                self:drawFieldObject(entry.row,entry.role,W,108)
+            end
+        end
         ui.drawRect(0,38,W,68,0.035,0.045,0.055,0.95)
         self:button('results','Battle report',12,68,132,26);self:button('reset','Back to Sandbox',154,68,150,26);self:button('rematch','Rematch',314,68,110,26)
         self:button('main','Main menu',434,68,120,26)
@@ -1016,7 +1036,10 @@ function U:draw()
         local name=M.displayName(hover);local width=math.min(p-20,math.max(190,math.min(48,utf8 and utf8.len(name)or #name)*12+18))
         local x=math.max(5,math.min(p-width-5,self.api.get('uiPointerX')+14));local y=math.max(42,math.min(H-110,self.api.get('uiPointerY')+14))
         ui.drawRect(x,y,width,48,0.025,0.04,0.05,0.97);ui.drawText(x+8,y+29,12,name,1,0.94,0.73,1)
-        ui.drawText(x+8,y+10,10,hover.name..' | '..(hover.team==1 and'A'or'B')..' #'..hover.id,0.82,0.87,0.9,1)
+        ui.drawText(x+8,y+10,10,hover.name..' | Team '..(hover.team==1 and'A'or'B')..' #'..hover.id,0.82,0.87,0.9,1)
+    elseif gx and self.runtime.fieldObjectAt and self.selected==nil and not self.context and not self.editWindow and not self.selectedItem and not self.moving then
+        local object,role=self.runtime:fieldObjectAt(gx,gy)
+        if object then self:drawFieldObject(object,role,p,42) end
     end
     if self.context then
         local name=M.displayName(self.context.unit);local width=math.min(p-14,math.max(180,math.min(48,utf8 and utf8.len(name)or #name)*12+18))
@@ -1366,13 +1389,21 @@ function U:results()
     local winner=r.summary.winner==0 and 'Team A' or r.summary.winner==24 and 'Team B' or 'None / unavailable'
     local page=1;local types={};for _,row in pairs(r.types) do types[#types+1]=row end
     for _,u in ipairs(self.report.scenario and self.report.scenario.units or{})do if u.nativeName and u.nativeName~=''then
-        local actor=r['unit'..u.id];if actor then types[#types+1]={team=u.team,name=u.nativeName,modelId=u.id,individual=true,survivors=actor.alive,losses=actor.alive==1 and 0 or 1}end
+        local actor=r['unit'..u.id];if actor then types[#types+1]={team=u.team,name=u.nativeName,modelId=u.id,individual=true,survivors=actor.alive}end
     end end
     table.sort(types,function(a,b) return a.team==b.team and a.name<b.name or a.team<b.team end)
     while true do
         local rows={{0,'Winner: '..winner..' | final round '..r.summary.final_round..' | elapsed wall '..math.floor(r.summary.elapsed_wall_ms/1000)..' s'},
             {0,('A: %d start / %d lost / %d survive; B: %d / %d / %d'):format(r.teamA.start,r.teamA.losses,r.teamA.survivors,r.teamB.start,r.teamB.losses,r.teamB.survivors)}}
-        for i=(page-1)*5+1,math.min(page*5,#types) do local t=types[i];rows[#rows+1]={0,t.individual and ('Individual %s #%d: %s | %s'):format(t.team==1 and'A'or'B',t.modelId,t.name,t.survivors==1 and'survived'or'lost')or('Team %d %s: %d lost / %d survive'):format(t.team,t.name,t.losses,t.survivors)} end
+        local unknownA,unknownB=r.teamA.unverified or 0,r.teamB.unverified or 0
+        if unknownA+unknownB>0 then rows[#rows+1]={0,('Unverified outcomes | A: %d / B: %d'):format(unknownA,unknownB)} end
+        for i=(page-1)*5+1,math.min(page*5,#types) do
+            local t=types[i]
+            local result=t.survivors==1 and 'survived' or t.survivors==0 and 'lost' or 'unverified'
+            local extra=(t.unverified or 0)>0 and (' / %d unverified'):format(t.unverified) or ''
+            rows[#rows+1]={0,t.individual and ('Individual %s #%d: %s | %s'):format(t.team==1 and 'A' or 'B',t.modelId,t.name,result)
+                or ('Team %d %s: %d lost / %d survive'):format(t.team,t.name,t.losses,t.survivors)..extra}
+        end
         rows[#rows+1]={0,'Damage attribution partial; complete cast log unavailable. Export includes native kills.'}
         rows[#rows+1]={0,r.summary.final_snapshot_source and ('Final view: '..r.summary.final_snapshot_source..'; units/cells complete: '..tostring(r.summary.final_snapshot_complete)..'; effects excluded.') or 'Final capture unavailable; aftermath observations alone are partial.'}
         rows[#rows+1]={0,'The battle result is read only. Returning restores saved positions, spells and items.'}
@@ -1460,7 +1491,7 @@ function U:dispatch(action)
             local deselect=self.selected==m.id
             self.selected=not deselect and m.id or nil;self.selectedItem=nil;self.equipDialog=nil;self.copyTemplate=nil;self.moving=nil;self.context=nil
             self.releaseBarrier=true;self.dragBlocked=true
-            self.message=deselect and 'Unit selection cleared. Right-click a unit for its context menu.' or 'Selected '..m.name..'; click Select again to clear.'
+            self.message=deselect and 'Unit selection cleared. Right-click a unit for its context menu.' or 'Selected '..m.name..' as an army unit; click Select again to clear.'
             self.diag:record(deselect and 'deselect' or 'select',{monster=m.id,name=m.name})
         end
     elseif prefix=='context' then

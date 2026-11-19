@@ -1,4 +1,5 @@
 -- Timed native unit/cell snapshot. Never creates actors or guesses positions.
+local FieldObjects=require('sandbox.battlefield_objects')
 local F={}
 local function truth(v)return v==true or v==1 end
 local function integer(v)return type(v)=='number' and v%1==0 end
@@ -12,7 +13,7 @@ function F.exportUnits(snapshot,limit)
     return out
 end
 function F.prepare(snapshot)
-    local plan={rows={},actors={},byUnit={},teamA=0,teamB=0,offField=0,dead=0,invalid=0,complete=false,source='unavailable'}
+    local plan={rows={},actors={},byUnit={},objects={},teamA=0,teamB=0,offField=0,dead=0,invalid=0,complete=false,source='unavailable'}
     if type(snapshot)~='table' or snapshot.source~='post_aftermath_before_upkeep' or not integer(snapshot.width) or not integer(snapshot.height) then return plan end
     plan.source=snapshot.source;plan.snapshot=snapshot
     plan.complete=truth(snapshot.complete) and #(snapshot.issues or {})==0
@@ -34,14 +35,26 @@ function F.prepare(snapshot)
                 cells[key]=true
             end end
             if valid and not plan.byUnit[row.unit] then
+                local team=row.kind=='actor' and (row.owner==0 and 1 or row.owner==24 and 2) or 0
+                local role=snapshot.classificationVersion==1 and FieldObjects.role(row) or nil
                 local entry={native=row.unit,row=row,x=anchor.x,y=anchor.y,width=row.width,height=row.height,cells=cells,
-                    monster=row.monster,hp=row.hp,team=row.owner==0 and 1 or row.owner==24 and 2 or 0,kind=row.kind}
+                    monster=row.monster,hp=row.hp,team=team,kind=row.kind,role=role}
+                if role=='structure' then for key in pairs(cells) do plan.objects[key]=entry end end
                 plan.rows[#plan.rows+1]=entry;plan.byUnit[row.unit]=entry
                 if row.kind=='actor' then
                     plan.actors[#plan.actors+1]=entry
                     if entry.team==1 then plan.teamA=plan.teamA+1 elseif entry.team==2 then plan.teamB=plan.teamB+1 end
                 end
             else plan.invalid=plan.invalid+1;plan.complete=false end
+        end
+    end
+    if snapshot.classificationVersion==1 then
+        for _,cell in ipairs(snapshot.grid or {}) do
+            local entry=plan.byUnit[cell.object]
+            if entry and entry.role=='scenery' then
+                local key=cell.x..':'..cell.y
+                if not plan.objects[key] then plan.objects[key]=entry end
+            end
         end
     end
     table.sort(plan.rows,function(a,b)

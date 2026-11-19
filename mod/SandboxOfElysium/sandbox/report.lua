@@ -41,8 +41,10 @@ end
 function Report:start(s,runtime)
     self.active=true;self.stack={};self.damageStack={};self.direct={};self.itemSpellAttacks={};self.unattributed=0
     self.started=self.api.get('ticksMs');self.initial={};self.aftermath={};self.scenario=M.copy(s)
-    for _,u in ipairs(s.units) do local unit=runtime.live[u.id]
-        self.initial[u.id]={native=unit,kills=self.api.get('unitKills',unit)}
+    for _,u in ipairs(s.units) do
+        local unit=runtime.live[u.id]
+        local row=runtime.verified and runtime.verified.rows and runtime.verified.rows[unit]
+        self.initial[u.id]={native=unit,generation=row and row.generation,kills=self.api.get('unitKills',unit)}
     end
 end
 function Report:finish(s,runtime)
@@ -59,32 +61,46 @@ function Report:finish(s,runtime)
         elapsed_wall_ms=(self.api.get('ticksMs')-self.started)%4294967296,unattributed_observed_hp_loss=self.unattributed,
         damage='Partial: synchronous DOATTACK -> DAMAGE_UNIT HP loss only; not total damage',
         spells='Complete cast log unavailable; item spell DOATTACK events exported separately',
-        population='Original roster only; summons excluded; survivors counted by original team, even after conversion',
+        population='Original roster only. Native map features and summons are excluded. Results use the original team and verified actor identity when available.',
         final_position_count=0,aftermath_position_count=0,captured_original_position_count=0,
         positions='Return-time cells and any observed aftermath cells are separate; no reconstructed native final scene'},
-        teamA={start=0,survivors=0,losses=0},teamB={start=0,survivors=0,losses=0},types={}}
+        teamA={start=0,survivors=0,losses=0,unverified=0},teamB={start=0,survivors=0,losses=0,unverified=0},types={}}
     for _,u in ipairs(s.units) do
         local initial=self.initial[u.id];local unit=initial.native
-        local hp=self.api.get('unitHp',unit);local alive=hp and hp>0
-        local t=u.team==1 and out.teamA or out.teamB;t.start=t.start+1
-        t[alive and 'survivors' or 'losses']=t[alive and 'survivors' or 'losses']+1
+        local finalRow=captured[unit]
+        if finalRow and initial.generation~=nil and finalRow.generation~=initial.generation then finalRow=nil end
+        local current=initial.generation==nil or finalRow and finalRow.identityMatches==true
+        local hp,owner,kills,x,y,aftermath
+        local outcomeScope='unverified native identity'
+        if current then
+            hp=self.api.get('unitHp',unit)
+            owner=self.api.get('unitOwner',unit)
+            kills=self.api.get('unitKills',unit)
+            x,y=self.api.get('unitBattleX',unit),self.api.get('unitBattleY',unit)
+            aftermath=self.aftermath[unit]
+            outcomeScope=initial.generation and 'return-time original generation' or 'return-time legacy unit lookup'
+        elseif finalRow and finalRow.readable==true then
+            hp,owner=finalRow.hp,finalRow.owner
+            outcomeScope='original generation at final snapshot'
+        end
+        local outcome=type(hp)~='number' and 'unverified' or hp>0 and 'survivors' or 'losses'
+        local t=u.team==1 and out.teamA or out.teamB
+        t.start=t.start+1;t[outcome]=t[outcome]+1
         local key=u.team..'_'..u.monster
-        local kind=out.types[key] or {team=u.team,monster=u.monster,name=u.name,start=0,survivors=0,losses=0}
-        out.types[key]=kind;kind.start=kind.start+1;kind[alive and 'survivors' or 'losses']=kind[alive and 'survivors' or 'losses']+1
-        local kills=self.api.get('unitKills',unit)
-        local x,y=self.api.get('unitBattleX',unit),self.api.get('unitBattleY',unit)
-        local aftermath=self.aftermath[unit]
-        local finalRow=captured[unit];local finalAnchor=finalRow and finalRow.anchorCount==1 and finalRow.anchors[1]
+        local kind=out.types[key] or {team=u.team,monster=u.monster,name=u.name,start=0,survivors=0,losses=0,unverified=0}
+        out.types[key]=kind;kind.start=kind.start+1;kind[outcome]=kind[outcome]+1
+        local finalAnchor=finalRow and finalRow.anchorCount==1 and finalRow.anchors and finalRow.anchors[1]
         if finalAnchor then out.summary.captured_original_position_count=out.summary.captured_original_position_count+1 end
         if x and y then out.summary.final_position_count=out.summary.final_position_count+1 end
         if aftermath then out.summary.aftermath_position_count=out.summary.aftermath_position_count+1 end
         out['unit'..u.id]={name=u.name,display_name=readableName(M.displayName(u)),display_name_hex=nameHex(M.displayName(u)),native_name=readableName(u.nativeName or ''),native_name_hex=nameHex(u.nativeName or ''),native_name_recorded=u.nativeName~=nil and 1 or 0,native_name_scope='native_individual_v1; pre-battle setup, not a reconstructed combat log',sandbox_label=u.label or '',label_scope='sandbox_display_label; separate from native personal name',monster=u.monster,team=u.team,native=unit,hp=hp or 'unavailable',
-            alive=alive and 1 or 0,final_owner=self.api.get('unitOwner',unit) or 'unavailable',
+            alive=outcome=='unverified' and 'unavailable' or outcome=='survivors' and 1 or 0,
+            final_owner=owner or 'unavailable',outcome_scope=outcomeScope,
             x=x or 'unavailable',y=y or 'unavailable',
             aftermath_x=aftermath and aftermath.x or 'unavailable',aftermath_y=aftermath and aftermath.y or 'unavailable',
             captured_x=finalAnchor and finalAnchor.x or 'unavailable',captured_y=finalAnchor and finalAnchor.y or 'unavailable',
             kills_delta=kills and initial.kills and kills-initial.kills or 'unavailable',
-            observed_direct_hp_loss=self.hooks.damage and self.hooks.attack and (self.direct[unit] or 0) or 'unavailable'}
+            observed_direct_hp_loss=current and self.hooks.damage and self.hooks.attack and (self.direct[unit] or 0) or 'unavailable'}
     end
     if final then
         out.summary.final_snapshot_source=final.source;out.summary.final_snapshot_complete=final.complete and 1 or 0
@@ -94,7 +110,9 @@ function Report:finish(s,runtime)
         out.summary.final_snapshot_export_scope='At most 48 rows, actors before terrain; bounded export is not the complete capture'
         for i,row in ipairs(require('sandbox.final_view').exportUnits(final,48)) do
             local anchor=row.anchorCount==1 and row.anchors[1]
-            out['final_unit'..i]={native=row.unit,generation=row.generation,kind=row.kind,monster=row.monster,owner=row.owner,hp=row.hp,
+            out['final_unit'..i]={native=row.unit,generation=row.generation,kind=row.kind,creation_source=row.creationSource,
+                provenance_verified=row.provenanceVerified==nil and 'unavailable' or row.provenanceVerified and 1 or 0,
+                monster=row.monster,owner=row.owner,hp=row.hp,
                 x=anchor and anchor.x or 'off field or unavailable',y=anchor and anchor.y or 'off field or unavailable',
                 width=row.width,height=row.height,status=row.status,created_during_fight=row.createdDuringFight and 1 or 0,
                 owner_changed=row.ownerChanged and 1 or 0,monster_changed=row.monsterChanged and 1 or 0,

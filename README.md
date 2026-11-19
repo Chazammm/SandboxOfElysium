@@ -14,3 +14,5 @@ Fleet and passenger battles are postponed. Existing fleet files remain readable 
 The mod is MIT licensed. Thanks to Illwinter for CoE5 and musical_pianist for CoE5SE. SandboxOfElysium was developed with Codex assistance. Game content and any third-party mods come from their respective installations.
 
 [Release candidate tests and known limits](docs/TEST-RELEASE-CANDIDATE-2026-11-19.md) · [Changelog](CHANGELOG.md)
+
+For the follow-up branch, see the [battlefield object audit](docs/TEST-BATTLEFIELD-OBJECTS-2026-11-19.md) and [upstream API dependencies](docs/COE5SE-API-DEPENDENCIES-2026-11-19.md).

@@ -4,6 +4,7 @@ local Loadout=require('sandbox.loadout')
 local Condition=require('sandbox.condition')
 local Names=require('sandbox.names')
 local Deployment=require('sandbox.deployment')
+local FieldObjects=require('sandbox.battlefield_objects')
 local R={}; R.__index=R
 local function same(a,b)
     if #a~=#b then return false end
@@ -280,7 +281,7 @@ function R:close()
             end
         elseif wasOpen then closed=false;why=why or 'Native lifecycle readback unavailable' end
     end
-    self.open=false; self.live={};self.objects={};self.finalState=nil;self.phase=nil
+    self.open=false; self.live={};self.objects={};self.scenery=nil;self.finalState=nil;self.phase=nil
     if self.savedColors then
         for team,slot in ipairs({0,24}) do for j,key in ipairs({'slotColorRed','slotColorGreen','slotColorBlue'}) do self.api.set(key,slot,self.savedColors[team][j]) end end
         self.savedColors=nil
@@ -620,11 +621,33 @@ function R:place(s,initialBuild)
     return valid,valid and nil or why
 end
 function R:cacheObjects()
-    self.objects={}
-    if type(self.api.battleObjectAt)=='function' then
-        for x=0,self.width-1 do for y=0,19 do local object=self.api.battleObjectAt(x,y)
-            if object and object>=0 then self.objects[x..':'..y]=true end
-        end end
+    self.objects={};self.scenery=nil
+    if type(self.api.battleObjectAt)~='function' then return end
+    for x=0,self.width-1 do for y=0,19 do
+        local object=self.api.battleObjectAt(x,y)
+        if type(object)=='number' and object>=0 then self.objects[x..':'..y]=object end
+    end end
+    if type(self.api.testFieldLifecycle)~='function' then return end
+    local ok,lifecycle=pcall(self.api.testFieldLifecycle)
+    if not ok or type(lifecycle)~='table' or lifecycle.complete~=true or lifecycle.open~=true then return end
+    local rows={}
+    for _,row in ipairs(lifecycle.created or {}) do
+        if FieldObjects.role(row)=='scenery' then rows[row.unit]=row end
+    end
+    self.scenery={session=lifecycle.session,rows=rows}
+end
+function R:fieldObjectAt(x,y)
+    local verified=self.verified
+    if self.blocked or not verified or not verified.native or verified.native.classificationVersion~=1 then return end
+    if next(verified.structures or {}) and type(self.api.battleUnitAt)=='function' then
+        local id=self.api.battleUnitAt(x,y)
+        local row=id and verified.structures[id] and verified.rows[id]
+        if FieldObjects.role(row)=='structure' then return row,'structure' end
+    end
+    local scenery=self.scenery
+    if scenery and scenery.session==verified.native.session then
+        local row=scenery.rows[self.objects[x..':'..y]]
+        if row then return row,'scenery' end
     end
 end
 function R:waterWarning(unit,x,y)
