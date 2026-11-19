@@ -10,7 +10,19 @@ local LoadoutUI=require('sandbox.loadout_ui')
 local ConfigWindow=require('sandbox.config_window')
 local Battlefields=require('sandbox.battlefields')
 local ClearItems=require('sandbox.clear_items')
+local ClearBattlefield=require('sandbox.clear_battlefield')
+local UnitView=require('sandbox.unit_view')
+local CenterGuide=require('sandbox.center_guide')
 local U={};U.__index=U
+local function pointerButtons(api,legacy)
+    local value
+    if api.testFieldPointerButtons==nil and legacy then value=api.get('mouseButtons')
+    elseif type(api.testFieldPointerButtons)=='function'then
+        local ok;ok,value=pcall(api.testFieldPointerButtons);if not ok then return nil end
+    else return nil end
+    if type(value)~='number'or value%1~=0 or value<0 or value>7 then return nil end
+    return value
+end
 local kinds={'Single','Horizontal Row','Vertical Row','Square'}
 local categories={'All','human','animal','undead','demonic','flying','ranged','modded','unknown_origin'}
 local categoryLabels={modded='Modded Units',unknown_origin='No mod definition'}
@@ -34,6 +46,7 @@ function U.new(api)
     end)
     self.waitHook=api.wrap('BATTLE_WAIT',function(next,b,m)
         local id=next(b,m)
+        if self.clearBusy then return ClearBattlefield.wait(self)end
         if not self.inNativeMenu and self.phase=='fight'then return self:combatLogWait(id)end
         if not self.inNativeMenu and (self.phase=='prepare' or self.phase=='after') then
             local log=self:readLogState()
@@ -46,12 +59,12 @@ function U.new(api)
             self:applyRequestedZoom()
             local engineButtons=api.get('mouseButtons') or 0
             if self.zoomAwaitingDraw then api.set('mouseButtons',engineButtons&4);return 0 end
-            local buttons=engineButtons
-            if type(api.testFieldPointerButtons)=='function' then buttons=api.testFieldPointerButtons() end
+            local buttons=pointerButtons(api,true)
             if buttons==nil then
                 self:setSearchFocus(false)
                 api.set('mouseButtons',engineButtons&4)
-                if self.runtime and self.runtime.quarantine then self.runtime:quarantine(self.scenario,'physical_pointer_unavailable',nil,{}) end
+                self.pending=nil;self.releaseBarrier=true;self.dragOrigin=nil;self.dragVisited=nil;self.lastCell=nil
+                if self.runtime and self.runtime.quarantine and not self.runtime.blocked then self.runtime:quarantine(self.scenario,'physical_pointer_unavailable',nil,{}) end
                 return 0
             end
             if self.lastPhysicalButtons~=buttons then
@@ -194,7 +207,7 @@ function U:setup()
             self:prepare(true)
         elseif id==4 then self:load()
         elseif id==5 then self:terrainBrowser()
-        elseif id==6 then self:notice(#available..' verified land contexts are available with this Extender; other native contexts remain unavailable. Size choices require the release-next API and are minimums. '..(Loadout.available(self.api) and 'Equipment and existing base schools up to level 3 are editable. New schools and eye/heart implants are unavailable. ' or 'Equipment and base-school editing need the newer experimental Extender. ')..'Modded Units means a mod-defined unit; modified vanilla units are not identified by that getter. Health/XP/injury-bit restoration needs the release-next API and remains a subset: effects, poison/bleeding and opaque native state are not saved. Complete battle telemetry is unavailable.')
+        elseif id==6 then self:notice(#available..' verified battlefield contexts are available with this Extender; other native contexts remain unavailable. Size choices require the release-next API and are minimums. '..(Loadout.available(self.api) and 'Equipment and existing base schools up to level 3 are editable. New schools and eye/heart implants are unavailable. ' or 'Equipment and base-school editing need the newer experimental Extender. ')..'Modded Units means a mod-defined unit; modified vanilla units are not identified by that getter. Health/XP/injury-bit restoration needs the release-next API and remains a subset: effects, poison/bleeding and opaque native state are not saved. Complete battle telemetry is unavailable.')
         elseif id==7 then self:smallCheck()
         elseif id==9 and self.snapshot then self.scenario=M.copy(self.snapshot);self.message='Pre-battle setup selected; native restoration checked on Prepare'
         elseif id==10 then self:save()
@@ -427,9 +440,8 @@ function U:nativeLogInput(x,y)
 end
 function U:combatLogWait(id)
     self:readLogState()
-    local called,buttons
-    if type(self.api.testFieldPointerButtons)=='function'then called,buttons=pcall(self.api.testFieldPointerButtons)end
-    if not called or type(buttons)~='number'then
+    local buttons=pointerButtons(self.api,false)
+    if buttons==nil then
         self.logMessage='Native log button input unavailable; use the native log shortcut.';self:applyRequestedLog()
         if self.logHeldTail then self.api.set('mouseButtons',(self.api.get('mouseButtons')or 0)&4);return 0 end
         return id
@@ -555,7 +567,7 @@ function U:wheelZoom()
     local x,y=self.api.get('uiPointerX'),self.api.get('uiPointerY')
     if self.inNativeMenu or self.noticeText or self.searchFocused or self.editWindow or self.equipDialog or self.context or self.finalContext or
         self.runtime.blocked or self.releaseBarrier or self:ownsPointer(x,y) then return end
-    local buttons=self.api.testFieldPointerButtons and self.api.testFieldPointerButtons() or self.api.get('mouseButtons') or 0
+    local buttons=pointerButtons(self.api,true)
     if buttons==nil or buttons&7~=0 then return end
     self:requestZoom(math.max(-5,math.min(5,delta)),x,y)
 end
@@ -739,6 +751,9 @@ function U:placementFootprint()
     end
     if source and not self.moving and footprint.monster~=source.monster then return nil,'Copy source transformed; its saved model must be verified first' end
     footprint.requestedMonster=monster;footprint.unit=unit
+    -- Copy uses its source only for geometry. A fresh actor, possibly on the
+    -- other team, cannot borrow that source instance's terrain permissions.
+    footprint.preflightUnit=self.moving and unit or nil
     return footprint
 end
 function U:placementAnchors(x,y,footprint)
@@ -759,17 +774,28 @@ function U:placementPreview(x,y)
     for _,anchor in ipairs(anchors) do
         local row
         if type(self.api.testFieldPlacementPreflight)=='function' then
-            local ok,value=pcall(self.api.testFieldPlacementPreflight,footprint.monster,anchor.x,anchor.y,footprint.unit,self.moving~=nil)
-            if ok and type(value)=='table' and value.width==footprint.width and value.height==footprint.height then row=value end
+            local ok,value=pcall(self.api.testFieldPlacementPreflight,footprint.monster,anchor.x,anchor.y,footprint.preflightUnit,self.moving~=nil)
+            if ok and type(value)=='table' and value.width==footprint.width and value.height==footprint.height and type(value.cells)=='table' then row=value end
         end
         local native={}
         if row then
             plan.preflightAccepted=plan.preflightAccepted+1
-            for _,cell in ipairs(row.cells or {}) do native[cell.x..':'..cell.y]=cell end
+            for _,cell in ipairs(row.cells) do
+                if type(cell)=='table' and type(cell.x)=='number' and type(cell.y)=='number' then native[cell.x..':'..cell.y]=cell end
+            end
         end
         for _,cell in ipairs(Preview.cells({anchor},footprint.width,footprint.height)) do
             local observed=native[cell.x..':'..cell.y]
-            if observed then cell.status=observed.status;cell.screenX=observed.screenX;cell.screenY=observed.screenY end
+            if observed then
+                cell.status=observed.status;cell.screenX=observed.screenX;cell.screenY=observed.screenY
+                cell.reason=observed.reason;cell.objectDecision=observed.objectDecision
+                -- Older preflights equated every object with blocked terrain
+                -- for a template. They could not distinguish passable siege
+                -- objects. Only revision 2 supplies that policy distinction.
+                if not footprint.preflightUnit and row.version~=2 and cell.status=='terrain' then
+                    cell.status='unknown';cell.reason='legacy_object_passability_unverified'
+                end
+            end
             if not cell.status then
                 cell.status=(cell.x<0 or cell.y<0 or cell.x>=self.runtime.width or cell.y>=20) and 'out_of_bounds' or 'unknown'
             end
@@ -781,7 +807,7 @@ function U:placementPreview(x,y)
         end
     end
     plan.validitySource=plan.preflightAccepted==#anchors and 'native_geometry_and_occupancy_only' or plan.preflightAccepted>0 and 'native_preflight_plus_unknown_cells' or 'bounds_only_unknown_occupancy'
-    plan.label=('%dx%d %s | partial: clear %d / blocked %d / outside %d / unknown %d'):format(plan.width,plan.height,tostring(plan.source),plan.clear,plan.blocked,plan.outside,plan.unknown)
+    plan.label=('%dx%d %s | partial: clear %d / blocked %d / outside %d / unknown %d; native placement decides.'):format(plan.width,plan.height,tostring(plan.source),plan.clear,plan.blocked,plan.outside,plan.unknown)
     return plan
 end
 function U:ownsPointer(x,y)
@@ -793,6 +819,7 @@ function U:ownsPointer(x,y)
     return x<rect.x or y<rect.y or x>=rect.x+rect.width or y>=rect.y+rect.height
 end
 function U:draw()
+    if self.clearBusy then return ClearBattlefield.draw(self)end
     local api,ui=self.api,self.api.ui;local W,H=api.get('screenW'),api.get('screenH');local p=W-300
     self:readLogState()
     self.buttons={};self.grid=nil;self.previewInfo=nil
@@ -809,6 +836,14 @@ function U:draw()
                 end
                 if type(ui.drawMonsterIconFit)=='function' then ui.drawMonsterIconFit(x-size/2+1,y-size/2+1,w-2,h-2,entry.monster) end
             end
+        end
+    end
+    self.centerGuideLine=nil
+    if self.centerGuideVisible and self.native and self.view then
+        local line=CenterGuide.line(self.view,self:usableViewport())
+        if line then
+            self.centerGuideLine=line
+            ui.drawRect(line.x-1,line.y1,2,line.y2-line.y1,1,0.8,0.18,0.9)
         end
     end
     if self.noticeText then
@@ -875,19 +910,20 @@ function U:draw()
     ui.drawRect(0,H-38,W,38,0.035,0.045,0.055,0.97)
     local rosterLabel=self.phase=='after' and 'Snapshot ' or 'Team '
     local finalCounts=self.finalPlan and self.finalPlan.source~='unavailable'
-    self:button('team1',rosterLabel..'A: '..(self.phase=='after' and (finalCounts and self.finalPlan.teamA or '?') or M.count(self.scenario,1)),10,H-32,110,26,self.team==1 and {0.16,0.32,0.52} or nil)
-    self:button('team2',rosterLabel..'B: '..(self.phase=='after' and (finalCounts and self.finalPlan.teamB or '?') or M.count(self.scenario,2)),128,H-32,110,26,self.team==2 and {0.16,0.32,0.52} or nil)
-    if self.phase=='prepare' then self:button('native',self.native and 'Planning grid' or 'Battle map',248,H-32,122,26) end
+    self:button('team1',rosterLabel..'A: '..(self.phase=='after' and (finalCounts and self.finalPlan.teamA or '?') or M.count(self.scenario,1)),10,H-32,98,26,self.team==1 and {0.16,0.32,0.52} or nil)
+    self:button('team2',rosterLabel..'B: '..(self.phase=='after' and (finalCounts and self.finalPlan.teamB or '?') or M.count(self.scenario,2)),116,H-32,98,26,self.team==2 and {0.16,0.32,0.52} or nil)
+    if self.phase=='prepare' then self:button('native',self.native and 'Planning grid' or 'Battle map',224,H-32,106,26) end
     if self.phase=='after'then self:drawLogToggle(536,H-32,162,26)end
-    self:button('diagnostics','Export Diagnostics',380,H-32,148,26)
+    self:button('diagnostics','Export Diagnostics',self.phase=='prepare'and 340 or 380,H-32,self.phase=='prepare'and 138 or 148,26,nil,11)
     if self.phase=='prepare' and self.native then
         local zoom=self:zoomState()
         if zoom then
-            self:button('zoomout','Zoom -',536,H-32,40,26,nil,9)
-            ui.drawText(581,H-24,10,('%d%%'):format(math.floor(zoom.zoom*100+0.5)),0.90,0.92,0.85,1)
-            self:button('zoomin','Zoom +',618,H-32,40,26,nil,9)
-            self:button('fit',self:viewportAvailable()and'Fit'or'Fit N/A',662,H-32,36,26,nil,self:viewportAvailable()and 11 or 8)
-        else ui.drawText(539,H-24,10,'Native zoom unavailable',0.65,0.70,0.70,1) end
+            self:button('zoomout','Zoom -',486,H-32,38,26,nil,9)
+            ui.drawText(528,H-24,9,('%d%%'):format(math.floor(zoom.zoom*100+0.5)),0.90,0.92,0.85,1)
+            self:button('zoomin','Zoom +',562,H-32,38,26,nil,9)
+            self:button('fit',self:viewportAvailable()and'Fit'or'Fit N/A',608,H-32,32,26,nil,self:viewportAvailable()and 11 or 8)
+        else ui.drawText(487,H-24,9,'Zoom unavailable',0.65,0.70,0.70,1) end
+        self:button('centerguide',self.centerGuideVisible and'Line On'or'Line Off',648,H-32,50,26,nil,9)
     end
     self:button('back',self.moving and 'Cancel move' or 'Back',W-94,H-32,84,26)
     ui.drawRect(0,0,W,38,0.035,0.045,0.055,0.98)
@@ -961,14 +997,19 @@ function U:draw()
             ui.drawRect(p+10,y+2,34,30,0.065,0.085,0.10,1)
             local drawn=type(ui.drawMonsterIconFit)=='function' and ui.drawMonsterIconFit(p+11,y+3,32,28,item.id)
             if not drawn then ui.drawText(p+20,y+10,12,'?',0.65,0.7,0.75,1) end
-            ui.drawText(p+50,y+20,10,Catalog.textLimit(item.name,29,'...'),1,0.95,0.85,1)
+            ui.drawText(p+50,y+20,10,Catalog.textLimit(item.name,20,'...'),1,0.95,0.85,1)
             ui.drawText(p+50,y+6,9,'#'..item.id..' | A '..M.count(self.scenario,1,item.id)..' / B '..M.count(self.scenario,2,item.id),0.7,0.75,0.8,1)
+            self:button('view:'..item.id,'View',p+194,y+5,42,24)
             self:button('unit:'..index,'Select',p+240,y+5,50,24,item.id==self.selected and {0.18,0.34,0.5} or nil)
         end
     end
     if #self.filtered==0 then ui.drawText(p+18,208,12,'No matching units. Clear search or filter.',0.95,0.85,0.65,1) end
     self:button('prev','<',p+8,42,40,25);self:button('next','>',p+252,42,40,25)
     ui.drawText(p+65,50,11,self.page..' / '..math.max(1,math.ceil(#self.filtered/5))..(type(ui.drawMonsterIconFit)=='function' and '' or ' | icon API missing'),0.8,0.8,0.8,1)
+    if UnitView.nativeAvailable(api)then
+        ui.drawText(p+8,344,8,'View: native preview; no starting items.',0.85,0.87,0.80,1)
+        ui.drawText(p+8,354,8,'Random spells may differ when placed.',0.85,0.87,0.80,1)
+    end
     end
     local hover=gx and self:unitAt(gx,gy)
     if hover and not self.context and not self.editWindow then
@@ -994,6 +1035,7 @@ function U:pointerCell()
     if x>=0 and x<g.width and y>=0 and y<20 then return x,y end
 end
 function U:input(mouse)
+    if self.clearBusy then return true end
     if self.native and type(self.api.battleView)=='function' then self.view=self.api.battleView() or self.view end
     local freshLeft=mouse&1~=0 and self.lastMouse&1==0
     local freshRight=mouse&2~=0 and self.lastMouse&2==0
@@ -1047,7 +1089,10 @@ function U:input(mouse)
             self.dragBlocked=true
         elseif self.moving then
             if freshRight then self.pending={move=true,x=gx,y=gy} end
-        elseif self.selected~=nil and not self.context and not self.dragBlocked and self.catalogTab~='items' and not self.selectedItem then
+        elseif self.selected~=nil and not self.context and not self.dragBlocked and self.catalogTab~='items' and not self.selectedItem and (freshRight or self.dragOrigin) then
+            -- Only a press that began on the map can arm drag placement. Keep
+            -- an armed drag across UI crossings, but never place its held tail
+            -- when the press originated in a setup panel or screen margin.
             if freshRight then
                 local footprint=self:placementFootprint()
                 local stepX,stepY
@@ -1073,6 +1118,35 @@ function U:input(mouse)
             camera_x=self.view.cameraX,camera_y=self.view.cameraY,screen_w=self.view.screenW,screen_h=self.view.screenH,team=self.team})
     end
     return consumed
+end
+function U:viewType(id)
+    local row=self.catalog and self.catalog.byId[id]
+    if not row then self.message='The listed unit type is no longer available.';return false end
+    local ready,previous=self.runtime:ready(self.scenario)
+    if not ready then self:notice(previous);return false end
+    self:setSearchFocus(false);self.inNativeMenu=true
+    self.api.set('mouseButtons',(self.api.get('mouseButtons')or 0)&4)
+    local nativePreview=UnitView.nativeAvailable(self.api)
+    local called,ok,detail,result=pcall(UnitView.open,self.api,id,self.catalog)
+    self.inNativeMenu=false;self.releaseBarrier=true;self.dragBlocked=true;self.lastCell=nil;self.dragOrigin=nil
+    self.api.set('mouseButtons',(self.api.get('mouseButtons')or 0)&4)
+    local transaction=type(detail)=='table'and detail or type(result)=='table'and result or nil
+    if nativePreview and(not called or not transaction or transaction.verified~=true or transaction.cleanupVerified~=true or(ok and transaction.monster~=id))then
+        self.runtime:quarantine(self.scenario,'unit_preview_cleanup_unverified',nil,{monster=id,reason=tostring(called and detail or ok)})
+        self:notice('Native unit preview could not be verified. Editing locked; setup preserved. Export Diagnostics before restarting.');return false
+    end
+    local verified,observed,problem=self.runtime:check(self.scenario,true,previous)
+    if not verified then self.runtime:quarantine(self.scenario,observed,nil,problem);self:notice('Unit View closed; native state could not be verified. Setup preserved.');return false end
+    if not called or not ok then self:notice('Unit View unavailable: '..tostring(called and detail or ok));return false end
+    self.runtime:accept(self.scenario,observed)
+    if nativePreview then
+        self.message='Native preview only: no starting items; random spells may differ. Viewed: '..row.name
+        self.diag:record('view_type',{monster=id,name=row.name,scope='native_preview_instance',result='temporary instance cleaned; field verified unchanged',starting_items=0,random_spells='preview example'})
+    else
+        self.message='Viewed template/default: '..row.name..'. No unit created; starting spells/items remain instance-specific.'
+        self.diag:record('view_type',{monster=id,name=row.name,scope='template/default; no actor allocation',result='field verified unchanged'})
+    end
+    return true
 end
 function U:inspect(u)
     self:setSearchFocus(false);self.context=nil;self.moving=nil;self.pending=nil
@@ -1122,25 +1196,62 @@ function U:save()
                 if existing:gsub('%.ini$',''):lower()==name:gsub('%.ini$',''):lower()then self:notice('Migration writes a new copy. Choose an unused name; existing scenarios are preserved.');return end
             end
         end
-        local ok=self.api.writeIni(name,M.encode(self.scenario,self.catalog.mods))
-        if ok then
-            local verified,why=M.decode(self.api.readIni(name),self.catalog,self.catalog.mods)
-            if not verified then ok=false;self.diag:record('save_readback',{accepted=0,reason=tostring(why)})
-            else self.scenario.legacyState=false;self.scenario.sourceSchema=4;self.scenario.migrationRequired=false end
+        local function exact(a,b)
+            if type(a)~=type(b)then return false end
+            if type(a)~='table'then return a==b end
+            for k,v in pairs(a)do if not exact(v,b[k])then return false end end
+            for k in pairs(b)do if a[k]==nil then return false end end
+            return true
         end
-        self.message=ok and 'Scenario saved: '..name or 'Save refused: invalid file name, value or quota'
-        self.diag:record('save',{accepted=ok and 1 or 0,units=#self.scenario.units,terrain=self.scenario.terrain})
-        if not ok then local snapshot=self.runtime:snapshot(self.scenario);self.diag:failure('save',self.message,{},snapshot,snapshot,'unchanged') end
+        local function verify(data,expected)
+            local decoded,why=M.decode(data,self.catalog,self.catalog.mods)
+            if not decoded then return false,why end
+            if not exact(expected,M.encode(decoded,self.catalog.mods))then return false,'Saved configuration does not round-trip exactly' end
+            return true
+        end
+        local function refuse(stage,reason,fileUnverified)
+            local detail=Catalog.textLimit(tostring(reason),140,'...')
+            self.message=fileUnverified and ('Save could not be verified: '..detail..'. The target file may have changed; current setup kept.')
+                or ('Save refused: '..detail..'. Current setup kept.')
+            self.diag:record('save_'..stage,{accepted=0,reason=tostring(reason),target_state=fileUnverified and 'unverified'or'not replaced'})
+            self.diag:record('save',{accepted=0,units=#self.scenario.units,terrain=self.scenario.terrain})
+            local observed,snapshot=pcall(self.runtime.snapshot,self.runtime,self.scenario)
+            if not observed then snapshot={summary={observation_scope='Editor snapshot unavailable; no native completeness claimed'}}end
+            self.diag:failure('save',self.message,{stage=stage,target_state=fileUnverified and 'unverified'or'not replaced'},snapshot,snapshot,
+                fileUnverified and 'editor_unchanged; target_file_unverified'or'editor_unchanged; target_not_replaced')
+            self:notice(self.message)
+        end
+        -- Validate the exact payload before native writeIni can replace a file.
+        -- Decoding then silently writing a normalized copy would lose evidence.
+        local encoded,payload=pcall(M.encode,self.scenario,self.catalog.mods)
+        if not encoded then refuse('preflight',payload,false);return end
+        local checked,valid,why=pcall(verify,payload,payload)
+        if not checked or not valid then refuse('preflight',checked and why or valid,false);return end
+        local called,written=pcall(self.api.writeIni,name,payload)
+        if not called then refuse('write',written,true);return end
+        if not written then refuse('write','invalid file name, value or quota',false);return end
+        local read,data=pcall(self.api.readIni,name)
+        if not read then refuse('readback',data,true);return end
+        checked,valid,why=pcall(verify,data,payload)
+        if not checked or not valid then refuse('readback',checked and why or valid,true);return end
+        self.scenario.legacyState=false;self.scenario.sourceSchema=4;self.scenario.migrationRequired=false
+        self.message='Scenario saved: '..name
+        self.diag:record('save',{accepted=1,units=#self.scenario.units,terrain=self.scenario.terrain,target_state='verified exact configuration'})
     end
 end
 function U:load()
-    local files={};local rows={{0,'Choose a saved scenario'}}
+    local files,naval={},{};local rows={{0,'Choose a saved scenario'}}
     for _,name in ipairs(self.api.listIni()) do
         local data=self.api.readIni(name)
-        if data and data.scenario then files[#files+1]=name end
+        if data and (data.scenario or M.isNavalScenario(data))then
+            files[#files+1]=name;naval[#files]=M.isNavalScenario(data)
+        end
     end
-    for i,name in ipairs(files) do rows[#rows+1]={i,name} end;rows[#rows+1]={999,'Cancel'}
+    for i,name in ipairs(files) do rows[#rows+1]={i<999 and i or i+1,name..(naval[i] and ' (naval unavailable)' or '')} end
+    rows[#rows+1]={999,'Cancel'}
     local id=self:menu('Load scenario',rows)
+    if id==999 then return end
+    if type(id)=='number' and id>999 then id=id-1 end
     if not files[id] then return end
     local candidate,why=M.decode(self.api.readIni(files[id]),self.catalog,self.catalog.mods)
     if not candidate then
@@ -1201,14 +1312,24 @@ function U:itemBrowser(u)
     end
 end
 function U:fight()
+    if self.clearBusy then return false end
     self:setSearchFocus(false)
+    for _,unit in ipairs(self.scenario.units)do
+        local reason=M.waterMonsterProblem(self.api,self.scenario.terrain,unit.monster)
+        if reason then self:notice(reason);return false end
+    end
     if M.count(self.scenario,1)==0 or M.count(self.scenario,2)==0 then self:notice('Place at least one unit for each team before fighting.');return false end
     local ready,why=self.runtime:ready(self.scenario);if not ready then self:notice(why);return false end
     if self:logAvailable()then
         local shown,reason=self:setLogVisibility(true,'combat visible default')
         if not shown then self:notice(reason);return false end
     end
-    self.diag:record('battle_start',{units=#self.scenario.units,terrain=self.scenario.terrain})
+    local centerQueued,centerReason=false,'API unavailable'
+    if type(self.api.requestTestFieldBattleCenter)=='function'then
+        local called,queued,reason=pcall(self.api.requestTestFieldBattleCenter)
+        centerQueued=called and queued==true;centerReason=called and reason or'Center request failed'
+    end
+    self.diag:record('battle_start',{units=#self.scenario.units,terrain=self.scenario.terrain,center_queued=centerQueued and 1 or 0,center_reason=centerReason})
     local previousSnapshot,previousContext,previousMoving=self.snapshot,self.context,self.moving
     local previousReport={};for key,value in pairs(self.report)do previousReport[key]=value end
     ConfigWindow.close(self);self.selectedItem=nil
@@ -1230,7 +1351,12 @@ function U:fight()
     local reportName,archiveWarning=self.report:archive()
     self.message=reportName and 'Report archived: '..reportName..'.ini' or tostring(archiveWarning)
     if reportName and archiveWarning then self.message=self.message..' | '..archiveWarning end
-    self.diag:record('battle_end',{winner=self.api.get('battleWinner'),round=self.api.get('battleRound')})
+    local center
+    if centerQueued and type(self.api.testFieldBattleCenterState)=='function'then
+        local called,state=pcall(self.api.testFieldBattleCenterState);if called and type(state)=='table'then center=state end
+    end
+    self.diag:record('battle_end',{winner=self.api.get('battleWinner'),round=self.api.get('battleRound'),center_applied=center and center.applied==true and 1 or 0,center_status=center and center.status or'unavailable'})
+    if not center or center.applied~=true then self.message=self.message..' | Battle centering unavailable; native view retained.'end
     return true
 end
 function U:results()
@@ -1290,6 +1416,7 @@ function U:postBattle(action)
     end
 end
 function U:dispatch(action)
+    if self.clearBusy then self.pending=nil;return self.runtime.open end
     if action~='search' and action~='searchclear' then self:setSearchFocus(false) end
     if self.runtime.blocked and action~='diagnostics' and action~='recover' and action~='back' and action~='noticeclose' and action~='spellrepair' then
         self.message='Editing locked; export diagnostics and reopen the preserved setup.';self.pending=nil;return true
@@ -1326,6 +1453,7 @@ function U:dispatch(action)
             self.message=deselect and 'Item selection cleared. Right-click a unit for its context menu.' or 'Item selected: '..item.name..'. Right-click a unit to equip; click Select again to clear.'
         end
     elseif prefix=='iteminfo'then ConfigWindow.inspectItem(self,tonumber(value))
+    elseif prefix=='view'then self:viewType(tonumber(value))
     elseif prefix=='unit' then
         local m=self.filtered[tonumber(value)]
         if m then
@@ -1371,6 +1499,10 @@ function U:dispatch(action)
     elseif action=='zoomout' then self:requestZoom(-1)
     elseif action=='zoomin' then self:requestZoom(1)
     elseif action=='fit' then self:requestFit()
+    elseif action=='centerguide'then
+        self.centerGuideVisible=not self.centerGuideVisible
+        self.message=self.centerGuideVisible and'Center line: actual field midpoint (visual only).'or'Center line hidden.'
+        self.diag:record('center_guide',{visible=self.centerGuideVisible and 1 or 0,width=self.runtime.width})
     elseif action=='battlelog'then self:requestLogToggle()
     elseif action=='startingitems' then self:toggleStartingItems()
     elseif action=='clearitems' then self:clearAllHeldItems()
@@ -1386,16 +1518,7 @@ function U:dispatch(action)
     elseif action=='save' then self:save() elseif action=='load' then self:load()
     elseif action=='reset' then self:reset(false) elseif action=='rematch' then return self:postBattle('rematch')
     elseif action=='clear' then
-        if not self.runtime:emptyEditorAvailable() then self:notice('A completely empty battlefield requires the updated experimental empty-editor API. Current setup kept.');return self.runtime.open end
-        local units=M.copy(self.scenario.units)
-        for _,u in ipairs(units) do
-            local ok,candidate=self.runtime:remove(self.scenario,u)
-            if not ok then self:notice(candidate);return self.runtime.open end
-            self.scenario=candidate
-        end
-        self.context=nil;self.moving=nil;self.copyTemplate=nil;self.dragBlocked=true
-        self.message=M.isSiegeTerrain(self.scenario.terrain)and 'No army units remain. Native fort structures stay; place either team. A battle needs both teams.' or 'Battlefield is empty. Place units on either team; a battle needs at least one unit per team.'
-        self.diag:record('clear',{units=#self.scenario.units,team_a=M.count(self.scenario,1),team_b=M.count(self.scenario,2)})
+        ClearBattlefield.run(self)
     end
     return self.runtime.open
 end

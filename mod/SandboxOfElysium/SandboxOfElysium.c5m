@@ -1,2 +1,2 @@
 icon "banner.tga"
-description "SandboxOfElysium editor.8: battlefield unit window and explicit cursed-item removal. Requires the separate experimental CoE5SE with the owned Sandbox editor APIs (stock 3.4.4 alone is insufficient)."
+description "SandboxOfElysium 0.2.0-rc.1: configure two armies and run native battles. Requires the matching owned test-field APIs from CoE5SE."

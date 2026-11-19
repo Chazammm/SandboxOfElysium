@@ -140,7 +140,7 @@ end)
 test('limitations count comes from currently advertised validated presets',function()
     local u=uiFixture(1);u.catalog.testFieldTerrains={[0]=true,[1]=true,[5]=true};u.ensureCatalog=function()end;local calls=0
     u.menu=function()calls=calls+1;return calls==1 and 6 or 999 end
-    u:setup();assert(calls==2 and u.noticeText:find('3 verified land contexts',1,true)and not u.noticeText:find('Twelve',1,true))
+    u:setup();assert(calls==2 and u.noticeText:find('3 verified battlefield contexts',1,true)and not u.noticeText:find('Twelve',1,true))
 end)
 test('battlefield actions and Single/row/square controls remain available unchanged',function()
     local u=uiFixture(1);u.phase='prepare';u.native=false;u:draw();local seen={}

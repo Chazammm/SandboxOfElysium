@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0-rc.1 - 2026-11-19
+
+- Prepare the non-naval Sandbox candidate with native unit View, amber placement preview and the guarded exact deployment fix for the 61-unit Guard Tower scenario.
+- Keep the 21 supported land, siege and water choices with independent actors. Fleet saves explain why their ship and passenger setup cannot be opened.
+- Gate editor startup on compatible retirement and restoration capabilities. Keep the mod package separate from the Extender and all private test data.
+
 ## Unreleased local development - editor.16, 2026-11-17
 
 - Add verified Coastal Hamlet, Sea and Deep Sea (21 choices total), using actual native water cells, hazards and combat. Keep all18 previous maps and controls.

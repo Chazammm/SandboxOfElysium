@@ -283,6 +283,31 @@ test('wheel counter wraps correctly and unavailable input never synthesizes scro
     f=wheelFixture();f.u:wheelZoom();f.st.wheel=nil;f.u:wheelZoom();assert(not f.u.requestedZoom and f.u.lastWheel==nil)
     f.st.wheel=500;f.u:wheelZoom();assert(not f.u.requestedZoom)
 end)
+test('unavailable or malformed physical samples never fall back to stale engine input or replay wheel steps',function()
+    local samples={function()return nil end,function()error('declared unavailable')end}
+    for _,value in ipairs({false,'0',-1,0.5,8,math.huge,0/0})do
+        samples[#samples+1]=function()return value end
+    end
+    for _,sample in ipairs(samples)do
+        local f=wheelFixture();f.u.api.testFieldPointerButtons=sample;f.u:wheelZoom()
+        f.st.wheel=101;f.u:wheelZoom();assert(not f.u.requestedZoom,'invalid physical input used engine fallback')
+        f.u.api.testFieldPointerButtons=function()return 0 end;f.u:wheelZoom()
+        assert(not f.u.requestedZoom,'the refused wheel step replayed after physical input recovered')
+        f.st.wheel=102;f.u:wheelZoom();assert(math.abs(f.u.requestedZoom-1.1)<0.001)
+    end
+    local f=wheelFixture();f.u.api.testFieldPointerButtons=false;f.u:wheelZoom();f.st.wheel=101;f.u:wheelZoom()
+    assert(not f.u.requestedZoom,'a malformed advertised helper used engine fallback')
+end)
+
+test('wheel engine-button compatibility applies only when the physical helper is absent',function()
+    for buttons=0,7 do
+        local f=wheelFixture();f.u.api.testFieldPointerButtons=nil
+        local oldGet=f.u.api.get;f.u.api.get=function(key)if key=='mouseButtons'then return buttons end;return oldGet(key)end
+        f.u:wheelZoom();f.st.wheel=101;f.u:wheelZoom()
+        if buttons==0 then assert(math.abs(f.u.requestedZoom-1.1)<0.001)else assert(not f.u.requestedZoom)end
+    end
+end)
+
 test('first WAIT activates native projection control before later wheel handling',function()
     local f=wheelFixture();zoomWait(f);assert(#f.st.zoomCalls==1 and f.st.zoomCalls[1].zoom==1)
     zoomDraw(f);zoomWait(f);assert(#f.st.zoomCalls==1)

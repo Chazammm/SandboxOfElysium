@@ -1,66 +1,17 @@
-# Installation and testing — editor.16
+# Installation and testing
 
-Editor.16 adds **Coastal Hamlet, Sea and Deep Sea**, for **21 verified choices** including all seven sieges. It needs the separate native water-context/query API; ships, boats, passengers and ports remain unavailable. [Current tests, limits and manual plan](docs/TEST-WATER-COAST-2026-11-17.md).
+SandboxOfElysium 0.2.0-rc.1 is a review build for the Windows x64 edition of Conquest of Elysium 5, version 5.43. The package supplies the Sandbox mod and documentation. CoE5SE is installed separately and must provide the compatible owned test-field APIs described in [Compatibility](docs/COMPATIBILITY.md).
 
-Log controls require the separate owned-field native log-presentation API. The local launcher builds that source without bundling it with this mod. Setup hides the log; combat and the post-battle field have a labelled Hide/Show control. Missing support shows N/A. [Exact tests](docs/TEST-LOG-LAYOUT-2026-11-17.md).
+Stock CoE5SE 3.6.0 can load the Sandbox menu entry. Clicking it displays the compatibility message and preserves your data. Wait for a compatible official build before installing this package for normal play. See the [official CoE5SE repository](https://github.com/musical-pianist/coe5se) for its installation instructions and current versions.
 
-Siege support also requires the accepted siege policies and specialized native tower-context contract from the separate Extender source. The launcher builds/reuses that source locally. [Current presets, tests and blockers](docs/TEST-SIEGE-EXPANSION-2026-11-17.md).
+## Once a compatible build is available
 
-## Choose the correct build
+1. Install CoE5SE using its own instructions in a CoE5 test copy and profile. Verify that the game reports the expected version and the Extender is enabled.
+2. Copy the archive's `SandboxOfElysium` folder into the profile's `mods` directory. `SandboxOfElysium.c5m` and `SandboxOfElysium.lua` belong directly in that folder.
+3. Enable SandboxOfElysium alongside CoE5SE. Restart the game if required and select **Sandbox** from the main menu.
+4. Choose a battlefield and **Open battlefield / edit (keep positions)**. The native deployment alternative intentionally picks new positions. Select a team and unit, then right-click a free cell to place it. Use **View** to inspect a type first, or right-click a unit with the browser selection cleared to edit it.
+5. Put at least one actor on each side and select **Start battle**. Check **Back to Sandbox (restore setup)**, **Reset setup** and **Rematch**. Save a test copy under a new name.
 
-The repository contains **0.1.0+editor.16**, an experimental Windows development version for **Conquest of Elysium 5.43 x64**. It includes the mod, documentation and local development tools. It is not a complete first-time player package.
+The source checkout has a developer launcher, `SandboxOfElysium-Testen.bat`, for its preconfigured private lab. It requires separately prepared local game files and Extender sources. It is not part of this archive. The Windows lab used to verify the release candidate is separate from the original development profile. Use `--nosound --musicvol=0` for muted native testing.
 
-The full editor needs additional APIs from a **separately built experimental CoE5SE**. The local release-next experiment is based on the separately submitted 3.4.4 source contribution, with additional environment/minimum-size/bounded-state work. That additional work is not part of PR #2. Unmodified official CoE5SE, including examined dev 3.5.0, does not implement the full editor contract. The Ranged fix alone is also insufficient. A GitHub source ZIP does not install these dependencies.
-
-No CoE5SE files or modified DLL are bundled here. Its [separate license](https://github.com/musical-pianist/coe5se/blob/d96f2b784e97e115022a2598da2c821dd9520135/LICENSE.txt) prohibits including them with a mod. The game, keys and third-party mods are not distributed either. Older prototype test reports do not certify this editor with stock upstream.
-
-The [submitted source-only API PR #2](https://github.com/musical-pianist/coe5se/pull/2) remains separate and unchanged. Local editor.16 additionally needs the release-next, individual-naming and water-context API experiments in `SandboxOfElysium-ExtenderLab-next`; the local BAT now defaults explicitly to this separate worktree. Use `-ExtenderSource` for an explicit alternate source. See [current feature/tests/limitations](docs/TEST-RELEASE-NEXT-2026-11-16.md). This is not a public dependency installer.
-
-Current viewport and fortification requirements: [editor.13 report](docs/TEST-ZOOM-FORTIFICATION-2026-11-17.md). The separate experiment additionally provides `battleViewport=1` and `structureProvenance=1`; an older Extender cannot enable the fortified preset.
-
-Earlier controls, retirement/zoom/item API requirements and exact tests: [editor.12 report](docs/TEST-EDITOR-CONTROLS-2026-11-17.md). The existing BAT builds the matching separate experiment locally.
-
-## On the existing development computer
-
-1. Close a running isolated Sandbox test game.
-2. Double-click **SandboxOfElysium-Testen.bat** in **Sandbox of Elysium**.
-3. Let the launcher check paths, synchronize local mod files and build/reuse the separate Extender. Errors leave its window open. A fresh response from the running game must confirm the private profile; otherwise it aborts.
-4. Choose **Sandbox → Battlefield → Open with native deployment (reposition units)**.
-5. Choose Team A or B, search a unit, click Select, then right-click free ground. Click Select again to deselect. Both teams may be empty while editing; Clear battlefield removes all actors.
-6. Put at least one actor on each team and choose Start battle. Afterward try Back to Sandbox (restore setup), Reset setup and Rematch.
-
-Prerequisites: Windows PowerShell, Python 3, prepared `private/lab/identity.json` and `private/terrain-lab`, the owned verified game, separate `../SandboxOfElysium-ExtenderLab-next` source and the existing llvm-mingw toolchain. These private components are absent from Git. **The BAT is not an installer for another computer.** `SandboxOfElysium-Testen.bat -CheckOnly` checks the existing paths without launching. Use `SandboxOfElysium-Testen.bat -Muted` for process-local `--nosound --musicvol=0`; agents always use muted launches without changing normal game/system audio. Optional `-CrabCult` uses already installed private files; CrabCult is not included.
-
-The launcher uses only its private runtime/profile. Scenario and diagnostic files are under **private/terrain-lab/profile/coe5se_data/SandboxOfElysium**. Back up your own files before manual changes. The normal installation/profile is not updated and existing data is not deleted.
-
-## On another computer
-
-1. Install your own compatible Windows CoE5. Obtain official CoE5SE and its instructions from its [official repository](https://github.com/musical-pianist/coe5se). Stock CoE5SE alone does not enable this full development editor.
-2. Download/clone this repository. The mod folder is **mod/SandboxOfElysium**; the entire repository is not a game mod folder.
-3. Full editor.14 currently requires a separately obtained and appropriately built compatible experimental Extender plus an independently prepared isolated game/profile. This download sets up neither. Do not replace a regular installation with the experimental build.
-4. Once that separate test environment is ready, copy the complete **SandboxOfElysium** mod folder into its own **mods** directory and enable CoE5SE and SandboxOfElysium in its test profile. The `.c5m` belongs directly inside the SandboxOfElysium folder. Preserve existing scenario files separately.
-
-Mac, Linux, multiplayer and arbitrary mod combinations have not been accepted for this editor. A source review branch is not a public binary release.
-
-## Equipment, magic and limits
-
-- Without a selected item, right-click a placed actor → Edit. Items shows actual anatomical positions. Remove → Remove cursed item confirms cursed removal; Cancel keeps it. Remove before replacing a cursed item.
-- Permanent injuries are not healed by removing an existing implant. Schema 3 with the release-next API restores bounded HP/XP/kills/injury bits; other afflictions/effects remain unsupported. Old schemas lack these fields and migrate only to a new unused filename. New eye/heart implants remain unsupported.
-- Removing a bonus or lowering a school refuses unchanged if memorization would become invalid. Explicitly deselect those spells in Magic Schools & Spells, then retry. Random spells are not silently changed.
-- Existing base schools can be adjusted within 1–3. Unlock learns eligible spells without memorizing. Native item/unit Inspect is read-only.
-- Modded Items / Modded schools use observed loaded provenance. Unknown remains Unknown. Install and enable third-party mods separately.
-- Save/Load support empty and one-sided setups. Start battle requires at least one actor per team and otherwise keeps the editor/setup unchanged.
-
-Read [cursed-item tests](docs/TEST-CURSED-2026-11-15.md), [window/mod-filter tests](docs/TEST-PANEL-2026-11-15.md) and [launcher tests](docs/TEST-LAUNCHER-2026-11-13.md) for exact coverage.
-
-## Troubleshooting and uninstalling
-
-Use Export Diagnostics on the battlefield or in a recovery message. The dialog names its file. Preserve the original scenario; an unverified rollback must not be ignored. The export is bounded and distinguishes missing data from complete coverage. Logs depend on loader stage: `coe5mod.log` or `coe5se_logs/coe5mod.log` in the relevant test environment.
-
-Disable the mod and remove its mod folder to uninstall. Keep scenario data under `coe5se_data/SandboxOfElysium` if needed. The development BAT does not install or remove the normal Extender.
-
-For individual names: right-click an actor → Edit → Name. Maximum32 Unicode code points and 47 UTF-8 bytes; excess input shows an error and is refused. Naming needs the separate local naming experiment; PR #2 and stock3.4.4 alone do not provide it. [Native naming tests and exact limitations](docs/TEST-NATIVE-NAMES-2026-11-16.md).
-
-## Verified battlefields in editor.14
-
-Choose **Sandbox -> Battlefield**, select a verified preset, then **Open with native deployment (reposition units)** for an intentionally new layout. **Open battlefield / edit (keep positions)** must verify exact saved cells and refuse incompatible placement. The21 choices include eleven neutral land contexts, seven sieges and Coastal Hamlet/Sea/Deep Sea. Use independent swimmers such as Deep Ones and Tritons for open water; land units can drown under native rules. Ships/passengers and ports are unavailable. For Fortified Hoburg, Guard tower, Watch Tower, Castle, Citadel, Town and City, Team A attacks and Team B defends; walls/gates remain native map structures outside the roster. Clear removes army units, not those structures. Use **Fit** for the whole field and arrows/middle-drag to pan. [Current evidence and combined manual test plan](docs/TEST-WATER-COAST-2026-11-17.md).
+Scenarios and diagnostics live under `coe5se_data/SandboxOfElysium` inside the selected profile. If restoration is refused, export diagnostics and keep the original save. When the editor reports unverified cleanup, restart the test game before loading the preserved recovery copy. Disable the mod and remove its folder to uninstall. Keep the data folder if you want your scenarios later.

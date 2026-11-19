@@ -9,7 +9,7 @@ assert(loadfile('tests/inspector_probe.lua'))
 local count=0
 local function test(name,fn)fn();count=count+1;print('PASS '..name)end
 local function fixture()
-    local state={x=200,y=200,cellX=6,cellY=6,hit=-1,buttons=0,width=3,height=3,focus=false,queries={},adds={}}
+    local state={x=200,y=200,cellX=6,cellY=6,hit=-1,buttons=0,width=3,height=3,focus=false,queries={},adds={},preflightVersion=2,cellSize=10,cameraX=0,cameraY=0}
     local api={get=function(key)
         if key=='screenW'then return 800 elseif key=='screenH'then return 600 elseif key=='uiPointerX'then return state.x elseif key=='uiPointerY'then return state.y
         elseif key=='unitHp'then return 100 elseif key=='mouseButtons'then return state.buttons elseif key=='modLastIndex'then return -1 end;return 0
@@ -24,9 +24,9 @@ local function fixture()
             for dy=0,state.height-1 do for dx=0,state.width-1 do local cx,cy=x+dx,y+dy
                 local status=(cx<0 or cx>=30 or cy<0 or cy>=20) and 'out_of_bounds' or 'clear'
                 if state.cellStatus then status=state.cellStatus(cx,cy,status)end
-                cells[#cells+1]={x=cx,y=cy,status=status,screenX=cx*10+5,screenY=cy*10+5}
+                cells[#cells+1]={x=cx,y=cy,status=status,screenX=(cx+0.5)*state.cellSize+state.cameraX,screenY=(cy+0.5)*state.cellSize+state.cameraY}
             end end
-            return {width=state.width,height=state.height,partial=true,source='native_grid',cells=cells}
+            return {version=state.preflightVersion,width=state.width,height=state.height,partial=true,source='native_grid',cells=cells}
         end}
     local u=U.new(api);u.phase='prepare';u.native=true;u.selected=206;u.scenario=M.new();u.runtime={open=true,width=30,live={},objects={}}
     u.catalog={byId={[206]={name='Seraph',id=206}},mods={},testFieldTerrains={}}
@@ -68,10 +68,63 @@ test('missing preflight or footprint stays explicitly unknown without a new unit
     api.testFieldFootprint=nil;plan=u:placementPreview(6,6);assert(#plan.cells==0 and plan.label:find('unknown') and #state.adds==0)
     u.formation=2;assert(not u:placementAnchors(1,1),'unknown dimensions allowed overlapping formation spacing')
 end)
-test('Copy geometry measures its instance but preflight never ignores that instance',function()
+test('Copy measures source geometry but never borrows instance terrain permissions on either target team',function()
     local u,state=fixture();u.copyTemplate={id=4,monster=206};u.runtime.live[4]=101
-    local plan=u:placementPreview(6,6);assert(plan.source=='native_unit' and state.queries[1].unit==101 and state.queries[1].ignoreSelf==false)
-    u.moving=u.copyTemplate;u:placementPreview(6,6);assert(state.queries[2].unit==101 and state.queries[2].ignoreSelf==true)
+    for _,team in ipairs({1,2})do
+        u.team=team;local plan=u:placementPreview(6,6);local query=state.queries[#state.queries]
+        assert(plan.source=='native_unit' and query.unit==nil and query.ignoreSelf==false)
+        assert(#state.adds==0 and u.runtime.live[4]==101)
+    end
+    u.moving=u.copyTemplate;u:placementPreview(6,6);local query=state.queries[#state.queries]
+    assert(query.unit==101 and query.ignoreSelf==true,'Move lost its own instance/self-occupancy authority')
+end)
+test('revision 2 retains hard blockers and explicit unknown template passability',function()
+    local u,state,api=fixture();local original=api.testFieldPlacementPreflight
+    api.testFieldPlacementPreflight=function(...)
+        local row=original(...)
+        row.cells[1].status='unknown';row.cells[1].reason='template_object_passability_unverified';row.cells[1].objectDecision='requires_instance'
+        row.cells[2].status='terrain';row.cells[3].status='occupied';row.cells[4].status='out_of_bounds'
+        return row
+    end
+    local plan=u:placementPreview(6,6)
+    assert(plan.unknown==1 and plan.blocked==2 and plan.outside==1 and plan.clear==5 and plan.partial)
+    assert(plan.cells[1].objectDecision=='requires_instance' and plan.cells[1].reason=='template_object_passability_unverified')
+    assert(plan.label:find('native placement decides.',1,true) and #state.adds==0)
+end)
+test('legacy template object warnings become unknown without hiding actor or edge rejection',function()
+    for _,version in ipairs({false,1,3})do
+        local u,state=fixture();state.preflightVersion=version or nil
+        state.cellStatus=function(x,y,status)if x==6 and y==6 then return'terrain'elseif x==7 and y==6 then return'occupied'elseif x==8 and y==6 then return'out_of_bounds'end;return status end
+        local plan=u:placementPreview(6,6)
+        assert(plan.unknown==1 and plan.blocked==1 and plan.outside==1 and plan.clear==6 and plan.partial)
+        assert(plan.cells[1].status=='unknown' and plan.cells[1].reason=='legacy_object_passability_unverified' and #state.adds==0)
+    end
+end)
+test('legacy actual Move keeps instance blockers instead of turning them optimistic',function()
+    local u,state=fixture();state.preflightVersion=nil;u.moving={id=4,monster=206};u.runtime.live[4]=101
+    state.cellStatus=function(x,y,status)if x==6 and y==6 then return'terrain'end;return status end
+    local plan=u:placementPreview(6,6)
+    assert(plan.blocked==1 and plan.unknown==0 and state.queries[1].unit==101 and state.queries[1].ignoreSelf)
+end)
+test('unknown terrain does not change footprint-aware formation anchors or native projections across zoom and pan',function()
+    for _,view in ipairs({{30,0,38},{12,-173,180},{3,2,250}})do
+      for _,size in ipairs({{1,1},{2,2},{3,3},{1,3}})do
+        local u,state=fixture();state.cellSize,state.cameraX,state.cameraY=table.unpack(view)
+        state.width,state.height=size[1],size[2]
+        u.formation=2;u.n=2;state.cellStatus=function()return'unknown'end
+        local plan=u:placementPreview(1,5)
+        assert(#plan.anchors==2 and #plan.cells==2*size[1]*size[2] and plan.unknown==#plan.cells and plan.partial)
+        assert(plan.anchors[1].x==1 and plan.anchors[2].x==1+size[1] and plan.anchors[2].y==5)
+        for _,cell in ipairs(plan.cells)do
+            assert(cell.screenX==(cell.x+0.5)*view[1]+view[2] and cell.screenY==(cell.y+0.5)*view[1]+view[3])
+        end
+        assert(#state.adds==0,'Preview allocated an actor while deciding terrain')
+      end
+    end
+end)
+test('malformed preflight cell rows remain unknown without a preview exception or actor allocation',function()
+    local u,state,api=fixture();api.testFieldPlacementPreflight=function()return{version=2,width=3,height=3,cells='incomplete'}end
+    local plan=u:placementPreview(6,6);assert(plan.unknown==9 and plan.partial and #state.adds==0)
 end)
 test('formation execution and preview use identical footprint-aware anchors',function()
     local u,state=fixture();u.formation=2;u.n=3

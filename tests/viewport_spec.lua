@@ -135,7 +135,7 @@ test('Fit and zoom controls stay disjoint from Back and the fixed panel at both 
     for _,w in ipairs({800,1136})do
         local u,t=fixture();t.w=w;draw(u,t);local buttons={}
         for _,b in ipairs(u.buttons)do buttons[b.key]=b end
-        assert(buttons.fit.x==662 and buttons.fit.w==36 and buttons.fit.x+buttons.fit.w<buttons.back.x)
+        assert(buttons.fit.x+buttons.fit.w<buttons.centerguide.x and buttons.centerguide.x+buttons.centerguide.w<buttons.back.x)
         assert(buttons.zoomout.x+buttons.zoomout.w<buttons.zoomin.x and buttons.zoomin.x+buttons.zoomin.w<buttons.fit.x)
         assert(buttons.clearitems.x==w-292 and buttons.clearitems.w==284)
         local hint=false;for _,s in ipairs(t.texts)do if s:find('arrows / middle%-drag')and s:find('Fit: whole field')then hint=true end end;assert(hint)

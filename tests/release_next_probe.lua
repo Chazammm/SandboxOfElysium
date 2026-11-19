@@ -26,11 +26,11 @@ api.wrap('MAIN_MENU_WAIT',function(next,...)
   assert(c.testFieldTerrains[115]and c.environment.minimumWidthVersion==1)
   for _,terrain in ipairs({0,2,12,107,115,117})do
    local s=M.new();s.terrain=terrain;M.add(s,594,"Druid's Apprentice",1,8,9);M.add(s,953,'Goblin',2,18,9);assert(B.selectSize(c,s,B.sizes[3]));local r=open(c,s)
-   assert(r.width==50 and api.get('squareTerrain',1,1)==terrain);local before=M.copy(s);assert(B.selectSize(c,s,B.sizes[4]));local rebuilt,why=r:build(s,false)
+   assert(r.width==50 and api.get('squareTerrain',1,1)==terrain);local before=M.copy(s);assert(B.selectSize(c,s,B.sizes[4]));local requested=M.copy(s);local rebuilt,why=r:build(s,false)
    if not rebuilt then
     assert(r.open and r.width==50,'A rejected exact-position resize failed to restore the previous field');healthy(r,r.current)
     assert(same(M.encode(r.current,c.mods),M.encode(before,c.mods)))
-    assert(r:build(s,true));healthy(r,s)
+    s=requested;assert(r:build(s,true));healthy(r,s)
     out['resize_'..terrain]={exact='refused; previous field verified',explicit_native_deployment='accepted'}
    else healthy(r,s);out['resize_'..terrain]={exact='accepted'}end
    assert(r.width==70)

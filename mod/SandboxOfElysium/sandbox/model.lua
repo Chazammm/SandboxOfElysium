@@ -57,19 +57,24 @@ function M.terrainCapabilityAvailable(api,id)
     return caps.structureProvenance==1
 end
 function M.waterMonsterProblem(api,terrain,monster)
-    if not M.isWaterTerrain(terrain)then return nil end
+    local water=M.isWaterTerrain(terrain)
     local ok,transport=pcall(function()
         local flags=api.get('monsterMoveFlags',monster)
-        assert(type(flags)=='number'and math.type(flags)=='integer')
+        assert(type(flags)=='number'and math.type(flags)=='integer'and flags~=-1)
         if flags&(1<<40)~=0 then return true end
-        for _,ability in ipairs({0x1cf,0x1d2,0x1d3})do
+        local shipClass=api.get('monsterAbility',monster,0x1d2)
+        assert(type(shipClass)=='number')
+        if shipClass>0 then return true end
+        -- A standalone hull-role template can be a regular actor on land.
+        if not water then return false end
+        for _,ability in ipairs({0x1cf,0x1d3})do
             local value=api.get('monsterAbility',monster,ability);assert(type(value)=='number')
             if value>0 then return true end
         end
         return false
     end)
-    if not ok then return 'Water transport compatibility is unknown. Current setup kept.'end
-    if transport then return 'Ships, boats and passenger transport are not supported in these water presets yet. Current setup kept.'end
+    if not ok and water then return 'Water transport compatibility is unknown. Current setup kept.'end
+    if ok and transport then return 'Ships, boats and passenger transport are unavailable in this release. Current setup kept.'end
 end
 function M.copy(value)
     if type(value) ~= 'table' then return value end
@@ -142,7 +147,12 @@ end
 local function integer(v,low,high)
     v=tonumber(v); if not v or v%1~=0 or v<low or v>high then return nil end; return v
 end
+function M.isNavalScenario(t)
+    return type(t)=='table' and (t.fleet~=nil or t.mode=='native_fleet_v1' or
+        type(t.scenario)=='table' and t.scenario.mode=='native_fleet_v1')
+end
 function M.decode(t,catalog,activeMods)
+    if M.isNavalScenario(t)then return nil,'This scenario requires ship and passenger battles, which are unavailable in this release' end
     if type(t)~='table' or type(t.scenario)~='table' then return nil,'Missing scenario section' end
     local h=t.scenario
     local terrain=integer(h.terrain,0,100000)
@@ -172,9 +182,12 @@ function M.decode(t,catalog,activeMods)
     if not s.colors[1] or not s.colors[2] then return nil,'Invalid team color' end
     for i=1,n do
         local r=t['unit'..i]; if type(r)~='table' then return nil,'Missing unit '..i end
+        if r.fleet_role~=nil or r.carrier_model_id~=nil then
+            return nil,'This scenario contains ship or passenger assignments, which are unavailable in this release'
+        end
         local id=integer(r.monster,0,100000); local m=id and catalog.byId[id]
         if not m or m.name~=r.name then return nil,'Missing or changed unit: '..tostring(r.name)..' (#'..tostring(r.monster)..')' end
-        local team,x,y=integer(r.team,1,2),integer(r.x,0,999),integer(r.y,0,19)
+        local team,x,y=integer(r.team,1,2),integer(r.x,0,1535),integer(r.y,0,19)
         if not team or not x or not y or M.at(s,x,y) then return nil,'Invalid or overlapping position for unit '..i end
         local ni,ns=integer(r.item_count,0,schema>=2 and 20 or 8),integer(r.spell_count,0,30)
         if not ni or not ns then return nil,'Invalid equipment/spell list' end

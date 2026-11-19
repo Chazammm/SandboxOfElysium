@@ -1,1 +1,1 @@
-return '0.1.0+editor.16'
+return '0.2.0-rc.1'

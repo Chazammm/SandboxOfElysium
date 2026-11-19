@@ -3,6 +3,7 @@ local Integrity=require('sandbox.integrity')
 local Loadout=require('sandbox.loadout')
 local Condition=require('sandbox.condition')
 local Names=require('sandbox.names')
+local Deployment=require('sandbox.deployment')
 local R={}; R.__index=R
 local function same(a,b)
     if #a~=#b then return false end
@@ -23,6 +24,22 @@ local function exactValue(a,b)
     for k,v in pairs(a)do if not exactValue(v,b[k])then return false end end
     for k in pairs(b)do if a[k]==nil then return false end end
     return true
+end
+local function restoreModel(target,saved)
+    local actors={}
+    for _,u in ipairs(target.units or{})do actors[u.id]=u end
+    local values=M.copy(saved)
+    for i,u in ipairs(values.units)do
+        local actor=actors[u.id]
+        if actor and actor.monster==u.monster then
+            for key in pairs(actor)do actor[key]=nil end
+            for key,value in pairs(u)do actor[key]=value end
+            values.units[i]=actor
+        end
+    end
+    for key in pairs(target)do target[key]=nil end
+    for key,value in pairs(values)do target[key]=value end
+    return target
 end
 local function clearItemsIdentity(state)
     local value={unit=state.unit,generation=state.generation,items={},known=M.copy(state.known),memorized=M.copy(state.memorized),schools={},organInjuryFlags=state.organInjuryFlags}
@@ -193,7 +210,13 @@ function R:observeSpellSelection(u,unit,reason,detail)
     local observation={model_id=u.id,native_id=unit,name=u.name,monster=u.monster,reason=reason,detail=M.copy(detail),schools=rows,
         saved_known=M.copy(u.baseline and u.baseline.known or {}),saved_memorized=M.copy(u.spells),native=M.copy(native)}
     self.spellValidation=self.spellValidation or {};self.spellValidation[u.id]=observation
-    if self.diag then self.diag.spellValidation=M.copy(self.spellValidation) end
+    if self.diag then
+        -- Each observation already owns its values. Preserve the diagnostic's
+        -- independent copy of the changed actor without copying every earlier
+        -- actor again while a large army is initialized.
+        self.diag.spellValidation=self.diag.spellValidation or {}
+        self.diag.spellValidation[u.id]=M.copy(observation)
+    end
     if reason=='memorize_limit' or reason=='spell_level' or reason=='memorized_not_known' then
         self.spellRepairProblems=self.spellRepairProblems or {};self.spellRepairProblems[u.id]=observation
         if self.lastConfig then
@@ -278,6 +301,31 @@ function R:failure(action,why,s,before,restored,details)
         self.diag:failure(action,why,context,before,self:snapshot(s),restored)
     end
 end
+function R:captureBuildFailure(s,stage,why,details)
+    self.buildFailureGroup=self.buildFailureGroup or{}
+    self.buildFailures=self.buildFailures or{}
+    local role=self.buildAttemptRole=='rollback'and'rollback'or'requested'
+    if self.buildFailures[role]then return end
+    local context=M.copy(self.lastConfig or{})
+    for key,value in pairs(details or{})do context[key]=value end
+    context.field_generation=self.generation;context.native_field_open=self.open and 1 or 0
+    local captured,snapshot=pcall(self.snapshot,self,s)
+    if not captured then context.snapshot_error=tostring(snapshot);snapshot=nil end
+    local entry
+    if self.diag and type(self.diag.captureBuildFailure)=='function'then
+        local ok,value=pcall(self.diag.captureBuildFailure,self.diag,self.buildFailureGroup,role,stage,why,snapshot,self.latestNative,s,self.live,context)
+        if ok then entry=value else context.capture_error=tostring(value)end
+    end
+    if not entry then
+        entry={summary={role=role,stage=stage,message=tostring(why),scope='Detailed failed-field capture unavailable; cleanup must still run'},
+            snapshot=M.copy(snapshot),context=context,nativeUnits={},issues={},cells={}}
+        if self.diag then
+            if self.diag.buildFailureGroup~=self.buildFailureGroup then self.diag.buildFailureGroup=self.buildFailureGroup;self.diag.buildFailures={}end
+            self.diag.buildFailures=self.diag.buildFailures or{};self.diag.buildFailures[role]=entry
+        end
+    end
+    self.buildFailures[role]=entry;self.lastBuildFailure=entry
+end
 function R:accept(s,observed)
     self.current=s;self.lastKnownGood=M.copy(s);self.verified=observed;self.blocked=false
 end
@@ -338,6 +386,7 @@ function R:setLabel(u,label)
 end
 function R:setNativeName(u,name)return Names.set(self,u,name)end
 function R:build(s,nativeDeployment)
+    if M.isNavalScenario(s)then return false,'This setup requires ship and passenger battles, which are unavailable in this release. Current setup kept.'end
     for _,u in ipairs(s.units or {})do if u.nativeName~=nil then
         local valid,why=M.validNativeName(u.nativeName);if not valid then return false,why end
         if not Names.available(self.api)then return false,'Recorded individual names need the experimental naming API. Current setup kept.'end
@@ -352,14 +401,17 @@ function R:build(s,nativeDeployment)
         self:failure('rebuild',message,current,snapshot,'unchanged',details)
         return false,message
     end
-    if self.cleanupFailed then return reject('Native cleanup could not be verified: '..self.cleanupFailed..'. Export Diagnostics, restart the isolated game and load the preserved recovery file.') end
+    if self.cleanupFailed then return reject('Native cleanup could not be verified: '..tostring(self.cleanupFailed)..'. Export Diagnostics, restart the isolated game and load the preserved recovery file.') end
     local supported=false
-    if type(self.api.testFieldTerrains)=='function' then
+    local terrainAPI=self.api.testFieldTerrains~=nil
+    if terrainAPI then
+        if type(self.api.testFieldTerrains)~='function'then return reject('Native battlefield capabilities are unavailable. Current field kept.')end
         local ok,ids=pcall(self.api.testFieldTerrains)
+        if not ok or type(ids)~='table'then return reject('Native battlefield capabilities are unavailable. Current field kept.')end
         if ok and type(ids)=='table' then for _,id in ipairs(ids) do if id==s.terrain then supported=true end end end
     end
     if not M.terrainCapabilityAvailable(self.api,s.terrain)then return reject(M.isWaterTerrain(s.terrain)and 'This water preset requires the matching native water-context API. Current setup kept.'or 'This fortified preset requires the matching structure-provenance API. Current setup kept.')end
-    if s.terrain~=0 and not supported then return reject((M.terrainNames[s.terrain] or 'This terrain')..' requires the matching experimental terrain API. Current field kept.') end
+    if not supported and(s.terrain~=0 or terrainAPI)then return reject((M.terrainNames[s.terrain] or 'This terrain')..' requires the matching experimental terrain API. Current field kept.') end
     if not s.units then return reject('Scenario unit list is missing. Current field kept.') end
     if (M.count(s,1)==0 or M.count(s,2)==0) and not self:emptyEditorAvailable() then
         return reject('Empty teams need the updated experimental empty-editor API. Setup kept; restart with SandboxOfElysium-Testen.bat.')
@@ -389,40 +441,66 @@ function R:build(s,nativeDeployment)
     self.spellRepairProblems=nil;self.spellRepairScenario=nil;self.spellRepairSource=nil
     -- The UI may already have changed pending terrain/size options on current.
     -- Rollback must use the last verified native setup, including its dimensions.
+    local previousModel=self.current
     local old=self.open and (self.lastKnownGood or self.current) and M.copy(self.lastKnownGood or self.current) or nil
     local before=old and self:snapshot(old) or self:snapshot(s)
     self.lastConfig=nil
     -- Configuration may upgrade earlier legacy actors before a later actor is
     -- rejected. Recovery provenance must retain the exact requested scenario.
     local requested=M.copy(s)
+    self.buildFailureGroup={};self.buildFailures={};self.buildAttemptRole='requested'
     local ok,why=self:_build(s,nativeDeployment)
-    if ok then local good,observed=self:check(s);if good then self:accept(s,observed);self.spellRepairProblems=nil;return true end;ok=false;why=observed end
+    if ok then local good,observed=self:check(s);if good then self:accept(s,observed);self.spellRepairProblems=nil;return true end;ok=false;why=observed;self:captureBuildFailure(s,'final_verification',why)end
     local rejectedSpells=M.copy(self.spellRepairProblems)
     local rejectedScene=rejectedSpells and next(rejectedSpells) and requested or nil
     if rejectedScene and not self.originalSpellRecovery then self.originalSpellRecovery=M.copy(requested) end
+    -- A refused first open may have initialized an earlier actor before a
+    -- later actor failed. Do not commit those partial spell/condition captures.
+    restoreModel(s,requested)
     local failureContext=M.copy(self.lastConfig or {})
     local restored,restoreWhy=false,'no previous open field'
-    if old then restored,restoreWhy=self:_build(old);if restored then
+    if old then self.buildAttemptRole='rollback';restored,restoreWhy=self:_build(old);if restored then
         local good,observed=self:check(old);restored=good
-        if good then self:accept(old,observed) else restoreWhy=observed end
+        if good then
+            -- The UI still holds the previous scenario and actor tables when a
+            -- requested rebuild is refused. Restore verified values into those
+            -- identities; accepting a clone would strand context/name editors.
+            local restoredModel=old
+            if previousModel then
+                restoredModel=restoreModel(previousModel,old)
+                good,observed=self:check(restoredModel);restored=good
+            end
+            if good then self:accept(restoredModel,observed)else restoreWhy=observed end
+        else restoreWhy=observed;self:captureBuildFailure(old,'rollback_final_verification',restoreWhy)end
     end end
     self.lastConfig=failureContext
     self.spellRepairProblems=rejectedSpells;self.spellRepairScenario=rejectedScene;self.spellRepairSource=rejectedScene and self.sourceScenarioFile or nil
-    self:failure('rebuild',why,old or s,before,old and (restored and 'restored' or 'failed') or 'not applicable',{restore_detail=restoreWhy or 'ok'})
-    self.recovery=old
+    self:failure('rebuild',why,old or s,before,old and (restored and 'restored' or 'failed') or 'not applicable',{
+        restore_detail=restoreWhy or 'ok',requested_terrain=requested.terrain,requested_minimum_width=requested.minimumWidth or 0})
+    -- A refused first open has no previous field. Its original requested
+    -- setup must remain recoverable after quarantine and partial captures.
+    self.recovery=old or M.copy(requested)
     if not restored and old then self:quarantine(old,why,before,{restore_detail=restoreWhy}) end
-    return false,restored and 'The new setup could not be opened. Previous army restored; Export Diagnostics for details.' or
-        'The field could not be opened. Your scenario is kept; Export Diagnostics for details.'
+    local result=restored and 'The new setup could not be opened. Previous army restored.'or
+        'The field could not be opened. Your scenario is kept.'
+    return false,result..' Reason: '..tostring(why or'unknown reason')..' Export Diagnostics for details.'
 end
 function R:_build(s,nativeDeployment)
+    if self.cleanupFailed then return false,'Native cleanup is unverified: '..tostring(self.cleanupFailed)..'. Restart the isolated game; preserved setup kept.'end
     local supported=false
-    if type(self.api.testFieldTerrains)=='function' then
+    local terrainAPI=self.api.testFieldTerrains~=nil
+    if terrainAPI then
+        if type(self.api.testFieldTerrains)~='function'then return false,'Native battlefield capabilities are unavailable. Current field kept.'end
         local ok,ids=pcall(self.api.testFieldTerrains)
+        if not ok or type(ids)~='table'then return false,'Native battlefield capabilities are unavailable. Current field kept.'end
         if ok and type(ids)=='table' then for _,id in ipairs(ids) do if id==s.terrain then supported=true end end end
     end
     if not M.terrainCapabilityAvailable(self.api,s.terrain)then return false,M.isWaterTerrain(s.terrain)and 'This water preset requires the matching native water-context API. Current setup kept.'or 'This fortified preset requires the matching structure-provenance API. Current setup kept.'end
-    if s.terrain~=0 and not supported then return false,(M.terrainNames[s.terrain] or 'This terrain')..' requires the matching experimental terrain API. Current field kept.' end
+    if not supported and(s.terrain~=0 or terrainAPI)then return false,(M.terrainNames[s.terrain] or 'This terrain')..' requires the matching experimental terrain API. Current field kept.' end
     for _,u in ipairs(s.units or{})do local problem=M.waterMonsterProblem(self.api,s.terrain,u.monster);if problem then return false,problem end end
+    if type(self.api.openTestField)~='function' or self.open and type(self.api.closeTestField)~='function' then
+        return false,'This editor needs compatible owned test-field lifecycle APIs from CoE5SE. Current setup kept.'
+    end
     local closed,closeWhy=self:close()
     if not closed then return false,'Previous test field cleanup failed: '..tostring(closeWhy)..'. Scenario preserved; Export Diagnostics and restart the isolated game.' end
     local a,b={},{}; for _,u in ipairs(s.units) do local list=u.team==1 and a or b; list[#list+1]=u end
@@ -438,7 +516,7 @@ function R:_build(s,nativeDeployment)
     local ok,units=self.api.openTestField(spec)
     if not ok then
         if units=='temporary_square_busy' then
-            self.cleanupFailed=true
+            self.cleanupFailed='temporary_square_busy'
             return false,'The temporary field square still contains a native actor whose safe cleanup is unverified. Setup preserved. Export Diagnostics, restart the isolated game, then load the recovery file; do not keep retrying this process.'
         end
         return false,'The extender refused to open the test field: '..tostring(units or 'unknown reason')
@@ -465,21 +543,34 @@ function R:_build(s,nativeDeployment)
         for _,u in ipairs(s.units) do
             local unit=self.live[u.id]
             local x,y=self.api.get('unitBattleX',unit),self.api.get('unitBattleY',unit)
-            if not x or not y then self:close();return false,'Native deployment has no cell for '..u.name end
+            if not x or not y then local why='Native deployment has no cell for '..u.name;self:captureBuildFailure(s,'native_deployment',why);self:close();return false,why end
             u.x=x;u.y=y
         end
     else
-    local placed,why=self:place(s)
-    if not placed then self:close();return false,why end
+    local placed,why=self:place(s,true)
+    if not placed then self:captureBuildFailure(s,'exact_deployment',why);self:close();return false,why end
     end
     local configurationFailure,failureContext
     for _,u in ipairs(s.units) do local good,why=self:configure(u,self.live[u.id]);if not good and not configurationFailure then configurationFailure=why;failureContext=M.copy(self.lastConfig) end end
-    if configurationFailure then self.lastConfig=failureContext;self:close();return false,configurationFailure end
+    if configurationFailure then self.lastConfig=failureContext;self:captureBuildFailure(s,'configuration',configurationFailure);self:close();return false,configurationFailure end
     self:cacheObjects()
     return true
 end
-function R:place(s)
-    local valid,observed=self:check(s,false,nil,false)
+function R:place(s,initialBuild)
+    self.lastDeployment=nil
+    local valid,observed,details=self:check(s,false,nil,false)
+    if not valid and initialBuild==true and observed=='native_integrity_issue'and type(self.api.testFieldInitialDeployment)=='function'then
+        local called,caps=pcall(self.api.testFieldEditorCapabilities)
+        if called and type(caps)=='table'and caps.initialDeploymentVersion==1 then
+            local got,receipt,reason=pcall(self.api.testFieldInitialDeployment)
+            if got then valid,observed,details=Integrity.initialIntake(self,s,receipt,self.latestNative)
+            else observed='initial_receipt_unavailable';details={reason=tostring(receipt)}end
+            if self.diag then self.diag:record('initial_deployment_intake',{result=valid and'provisional; not ready'or tostring(observed),
+                reason=details and details.reason or reason,native_session=type(receipt)=='table'and receipt.session or'unknown',
+                actors=type(receipt)=='table'and type(receipt.actors)=='table'and #receipt.actors or 0,
+                scope='fresh initial packing only; strict final readback still required'})end
+        end
+    end
     if not valid then return false,observed end
     -- Parking must avoid every desired FOOTPRINT, not just model anchors.
     local targets,footprints={},{}
@@ -492,6 +583,8 @@ function R:place(s)
             targets[key]=u.id
         end end
     end
+    local used,exact,reason=Deployment.place(self,s,observed)
+    if used then return exact,reason end
     local waiting,parkedOnce={},{};for _,u in ipairs(s.units)do waiting[#waiting+1]=u end
     while #waiting>0 do
         local rest={}; local progress=false

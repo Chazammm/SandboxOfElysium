@@ -12,12 +12,21 @@ function L.available(api)
     end
     return true
 end
-function L.read(r,unit)
-    if not L.available(r.api) then return nil,'Equipment and base-school editing need the newer experimental Extender.' end
-    local state,why=r.api.testFieldLoadoutState(unit)
+local function dense(list,limit)
+    if type(list)~='table' or #list>limit then return false end
+    local count=0
+    for index in pairs(list)do
+        if type(index)~='number'or index%1~=0 or index<1 or index>#list then return false end
+        count=count+1
+    end
+    return count==#list
+end
+-- Validate a caller-owned, single-observation snapshot without reading native
+-- state again. Callers must not retain it across checks or native mutations.
+function L.validate(state,unit,why)
     if type(state)~='table' or state.complete~=true then return nil,why or 'Native configuration readback is incomplete.' end
-    if state.unit~=unit or type(state.items)~='table' or #state.items~=20 or type(state.schools)~='table' or
-        #state.schools>16 or type(state.known)~='table' or #state.known>60 or type(state.memorized)~='table' or #state.memorized>30 then
+    if state.unit~=unit or not dense(state.items,20)or #state.items~=20 or not dense(state.schools,16)or
+        not dense(state.known,60)or not dense(state.memorized,30)then
         return nil,'Native configuration snapshot does not satisfy the complete-state contract.'
     end
     for p,row in ipairs(state.items) do
@@ -25,7 +34,31 @@ function L.read(r,unit)
             type(row.slotType)~='number' or row.slotType%1~=0 or row.slotType<0 or row.slotType>7 or
             (row.id>=0 and type(row.name)~='string') then return nil,'Native equipment positions are incomplete or invalid.' end
     end
+    local paths={}
+    for _,row in ipairs(state.schools)do
+        if type(row)~='table'or type(row.path)~='number'or row.path%1~=0 or row.path<0 or row.path>469 or paths[row.path]or
+            type(row.base)~='number'or row.base%1~=0 or row.base<1 or row.base>32767 or type(row.name)~='string'then
+            return nil,'Native base-school identities or levels are incomplete or invalid.'
+        end
+        paths[row.path]=true
+    end
+    for _,list in ipairs({state.known,state.memorized})do
+        local seen={}
+        for _,id in ipairs(list)do
+            if type(id)~='number'or id%1~=0 or id<0 or id>32767 or seen[id]then return nil,'Native spell identities are incomplete or invalid.'end
+            seen[id]=true
+        end
+    end
+    if state.generation~=nil and(type(state.generation)~='number'or state.generation%1~=0 or state.generation<1)then
+        return nil,'Native actor generation is invalid.'
+    end
     return state
+end
+function L.read(r,unit)
+    if not L.available(r.api) then return nil,'Equipment and base-school editing need the newer experimental Extender.' end
+    local called,state,why=pcall(r.api.testFieldLoadoutState,unit)
+    if not called then return nil,'Native configuration readback failed: '..tostring(state)end
+    return L.validate(state,unit,why)
 end
 function L.capture(r,u,state)
     local condition
@@ -95,8 +128,10 @@ local function listSame(a,b)
     for i,v in ipairs(a) do if v~=b[i] then return false end end
     return true
 end
-function L.matches(r,u,unit)
-    local state,why=L.read(r,unit);if not state then return false,why end
+function L.matches(r,u,unit,observed)
+    local state,why
+    if observed~=nil then state,why=L.validate(observed,unit)else state,why=L.read(r,unit)end
+    if not state then return false,why end
     local wanted;wanted,why=L.wanted(r,u,state);if not wanted then return false,why end
     for _,row in ipairs(state.items) do if wanted.items[row.position+1]~=row.id then return false,'Equipment position/identity mismatch.' end end
     local bases={};for _,row in ipairs(state.schools) do bases[row.path]=row.base end

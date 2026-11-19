@@ -170,6 +170,47 @@ function D:failure(action,message,details,before,after,restored)
     self.lastError={message=text(message),action=text(action),details=flat(details),before=M.copy(before),after=M.copy(after),restored=text(restored)}
     self:record('error',{operation=action,message=message,restored=restored})
 end
+-- Freeze the first failed fresh-field readback for each requested/rollback
+-- attempt before close or another open can replace its native generations.
+function D:captureBuildFailure(group,role,stage,message,snapshot,native,scenario,live,details)
+    if self.buildFailureGroup~=group then self.buildFailureGroup=group;self.buildFailures={}end
+    role=role=='rollback'and'rollback'or'requested'
+    if self.buildFailures[role]then return self.buildFailures[role]end
+    native=type(native)=='table'and native or{}
+    local aliases={}
+    for _,u in ipairs(scenario.units or{})do
+        local id=live[u.id];if id then aliases[id]=aliases[id]or{};aliases[id][#aliases[id]+1]=u.id end
+    end
+    local function cells(values)
+        local result={};for _,cell in ipairs(values or{})do result[#result+1]=tostring(cell.x)..','..tostring(cell.y)end
+        return table.concat(result,';')
+    end
+    local entry={summary=flat({role=role,stage=stage,message=message,ticks_ms=get(self.api,'ticksMs')or'unknown',sequence=self.sequence,
+        session=native.session,width=native.width,height=native.height,complete=native.complete,
+        native_rows_total=#(native.units or{}),native_rows_exported=math.min(96,#(native.units or{})),
+        issues_total=#(native.issues or{}),issues_exported=math.min(32,#(native.issues or{})),grid_total=#(native.grid or{}),
+        scope='last native intake/readback query at failed fresh-field boundary; separate bounded current snapshot captured before close',
+        limits='96 native rows; 32 issues; 256 nonempty raw cells; accompanying snapshot has its own limits; not full engine state'}),
+        context=flat(details),snapshot=M.copy(snapshot),nativeUnits={},issues={},cells={}}
+    for i,row in ipairs(native.units or{})do if i>96 then break end
+        entry.nativeUnits[#entry.nativeUnits+1]=flat({native_id=row.unit,generation=row.generation,model_ids=table.concat(aliases[row.unit]or{},','),
+            monster=row.monster,owner=row.owner,hp=row.hp,alive=row.alive,kind=row.kind,creation_source=row.creationSource,provenance_verified=row.provenanceVerified,
+            anchor_count=row.anchorCount,anchors=cells(row.anchors),footprint_w=row.width,footprint_h=row.height,occupied=cells(row.occupied),world_x=row.worldX,world_y=row.worldY})
+    end
+    for i,issue in ipairs(native.issues or{})do if i>32 then break end
+        entry.issues[#entry.issues+1]=flat({code=issue.code,native_id=issue.unit,x=issue.x,y=issue.y})
+    end
+    local nonempty=0
+    for _,cell in ipairs(native.grid or{})do if(cell.unit and cell.unit>=0)or(cell.object and cell.object>=0)then
+        nonempty=nonempty+1
+        if #entry.cells<256 then entry.cells[#entry.cells+1]=flat({x=cell.x,y=cell.y,raw_unit=cell.unit,raw_object=cell.object})end
+    end end
+    entry.summary.nonempty_raw_cells=nonempty;entry.summary.raw_cells_exported=#entry.cells
+    entry.summary.truncated=#(native.units or{})>#entry.nativeUnits or #(native.issues or{})>#entry.issues or nonempty>#entry.cells
+    self.buildFailures[role]=entry
+    self:record('build_failure_captured',{role=role,stage=stage,native_session=native.session,native_issues=#(native.issues or{}),scope='before failed field close'})
+    return entry
+end
 function D:export(context,snapshot)
     local api=self.api
     local data={environment={sandbox_version=self.version,game_version=self.context.game_version or 'unknown',
@@ -196,6 +237,17 @@ function D:export(context,snapshot)
         end
     end
     addSnapshot('current',snapshot)
+    for _,role in ipairs({'requested','rollback'})do
+        local entry=self.buildFailures and self.buildFailures[role]
+        if entry then
+            local prefix='build_failure_'..role
+            data[prefix]=flat(entry.summary);data[prefix..'_context']=flat(entry.context)
+            addSnapshot(prefix..'_snapshot',entry.snapshot)
+            for i,row in ipairs(entry.nativeUnits)do data[prefix..'_native'..i]=flat(row)end
+            for i,row in ipairs(entry.issues)do data[prefix..'_issue'..i]=flat(row)end
+            for i,row in ipairs(entry.cells)do data[prefix..'_cell'..i]=flat(row)end
+        end
+    end
     local validations=0
     for _,v in pairs(self.spellValidation or {}) do
         validations=validations+1;if validations>24 then break end
