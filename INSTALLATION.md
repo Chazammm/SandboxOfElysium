@@ -1,17 +1,22 @@
-# Installation and testing
+# Install Sandbox of Elysium 0.2.0-beta.2
 
-SandboxOfElysium 0.2.0-rc.1 is a review build for the Windows x64 edition of Conquest of Elysium 5, version 5.43. The package supplies the Sandbox mod and documentation. CoE5SE is installed separately and must provide the compatible owned test-field APIs described in [Compatibility](docs/COMPATIBILITY.md).
+You need the **Windows x64 build of Conquest of Elysium 5 version 5.43** and **official CoE5SE 3.8.2**. Install CoE5SE separately. [Conquest of Elysium 5 on Steam](https://store.steampowered.com/app/1606340/Conquest_of_Elysium_5/) · [Official CoE5SE 3.8.2 release and ZIP](https://github.com/musical-pianist/coe5se/releases/tag/CoE5SE-v3.8.2)
 
-Stock CoE5SE 3.6.0 can load the Sandbox menu entry. Clicking it displays the compatibility message and preserves your data. Wait for a compatible official build before installing this package for normal play. See the [official CoE5SE repository](https://github.com/musical-pianist/coe5se) for its installation instructions and current versions.
+1. Exit CoE5. Download `CoE5SE-3.8.2.zip` from the official release and follow its Windows instructions in `how-to-install.html`. Copy its `CoE5SE` folder to `%APPDATA%\coe5\mods` and copy the official `glu32.dll` from that folder next to `CoE5.exe`. Confirm CoE5SE is enabled on the game's **Mods** screen.
+2. Open CoE5's mod directory through **Mods → Open Mods Directory**. The standard Windows profile uses `%APPDATA%\coe5\mods`. Extract the folder named `SandboxOfElysium` from this ZIP there. The game should find `mods\SandboxOfElysium\SandboxOfElysium.c5m` and the adjacent Lua entry file.
+3. Enable **SandboxOfElysium** alongside **CoE5SE** in **Mods**. Restart CoE5 if prompted. Choose **Sandbox** from the main menu.
+4. Select a battlefield and choose **Open battlefield / edit (keep positions)**. If the new map cannot keep those positions, choose **Open with native deployment (reposition units)** to let the game place them. Select Team A or B, use **Select** on a unit row, then right-click a free tile. Click **Select** again to clear the placement selection and right-click an existing unit to edit or inspect it.
+   To erase units, switch **Ctrl Right-click Delete** on in the footer. Hold Ctrl and right-click a unit, or hold the right button and sweep across several. Scenery stays in place.
+5. Put at least one unit on each team and choose **Start battle**. Neutral scenery stays outside the team counts. On the report screen, **Back to Sandbox** restores the setup and **Rematch** restores it before fighting again.
 
-## Once a compatible build is available
+## Update or remove
 
-1. Install CoE5SE using its own instructions in a CoE5 test copy and profile. Verify that the game reports the expected version and the Extender is enabled.
-2. Copy the archive's `SandboxOfElysium` folder into the profile's `mods` directory. `SandboxOfElysium.c5m` and `SandboxOfElysium.lua` belong directly in that folder.
-3. Enable SandboxOfElysium alongside CoE5SE. Restart the game if required and select **Sandbox** from the main menu.
-4. Choose a battlefield and **Open battlefield / edit (keep positions)**. The native deployment alternative intentionally picks new positions. Select a team and unit, then right-click a free cell to place it. Use **View** to inspect a type first, or right-click a unit with the browser selection cleared to edit it.
-5. Put at least one actor on each side and select **Start battle**. Check **Back to Sandbox (restore setup)**, **Reset setup** and **Rematch**. Save a test copy under a new name.
+Close the game. Move any earlier `SandboxOfElysium` mod folder out of `mods` as a backup, then install the new folder. Keep a single enabled copy and preserve `coe5se_data\SandboxOfElysium` in your game profile. This separate folder contains scenarios, diagnostics and recovery copies. Uninstall by disabling the mod and moving its mod folder out of `mods`.
 
-The source checkout has a developer launcher, `SandboxOfElysium-Testen.bat`, for its preconfigured private lab. It requires separately prepared local game files and Extender sources. It is not part of this archive. The Windows lab used to verify the release candidate is separate from the original development profile. Use `--nosound --musicvol=0` for muted native testing.
+## Troubleshooting
 
-Scenarios and diagnostics live under `coe5se_data/SandboxOfElysium` inside the selected profile. If restoration is refused, export diagnostics and keep the original save. When the editor reports unverified cleanup, restart the test game before loading the preserved recovery copy. Disable the mod and remove its folder to uninstall. Keep the data folder if you want your scenarios later.
+If **Sandbox** is missing, confirm that both mods are enabled, the archive has the folder layout above and CoE5 reports the tested version. If an exact reconstruction is refused, retain the saved setup, export diagnostics and follow the editor's recovery message.
+
+Choose **Export Diagnostics** from the Sandbox menu or battlefield toolbar. The exported INI records the versions, loaded content, recent actions and recovery details that the running build can verify. Find it in `coe5se_data\SandboxOfElysium` under the selected profile. Include your game and CoE5SE versions with the report, especially if the export marks them unknown. Review scenario names and mod names before sharing the file.
+
+[Compatibility and limits](docs/COMPATIBILITY.md)

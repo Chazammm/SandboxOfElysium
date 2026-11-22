@@ -106,4 +106,39 @@ test('cancel and migration name collision preserve the target without writing',f
   u:save();assert(c.writes==0 and c.reads==0 and c.target()==c.original and equal(s,before));c.close()
  end
 end)
+test('Save preserves generated recovery, diagnostic and report filenames',function()
+ for _,name in ipairs({'Recovery-session-1','repaired-session-1','Diagnostics-session-1','battle-session-1','Last-Battle','launcher-context'})do
+  local u,c=fixture(M.new());u.prompt=function()return name end
+  u:save()
+  assert(c.writes==0 and c.target()==c.original and u.noticeText:find('reserved',1,true));c.close()
+ end
+end)
+test('Save refuses an existing report, unreadable file or recovered setup at a custom name',function()
+ for _,kind in ipairs({'report','unreadable','recovery','repair','naval'})do
+  local u,c=fixture(M.new());u.api.listIni=function()return{'CHOSEN'}end
+  u.api.readIni=function(name)
+   assert(name=='CHOSEN')
+   if kind=='report'then return {summary={winner=0}}end
+   if kind=='naval'then return {scenario={mode='native_fleet_v1'}}end
+   if kind~='unreadable'then return {scenario={},[kind]={status='protected'}}end
+  end
+  u:save()
+  assert(c.writes==0 and c.target()==c.original and u.noticeText:find('protected or unreadable',1,true));c.close()
+ end
+end)
+test('Save may still update an existing ordinary scenario',function()
+ local u,c=fixture(M.new(),'string_readback');u.api.listIni=function()return{'chosen'}end
+ u:save();assert(c.writes==1 and c.reads==2 and u.message:find('Scenario saved',1,true));c.close()
+end)
+test('Load refuses persisted units beyond the declared count before rebuilding an open field',function()
+ local original=configured();local incoming=M.encode(original,catalog.mods)
+ incoming.scenario.count=0;incoming.scenario.actor_state_count=0;incoming.scenario.native_name_count=0
+ local u,c=fixture(original)
+ u.api.listIni=function()return{'truncated'}end;u.api.readIni=function()return incoming end
+ u.menu=function()return 1 end
+ u.runtime.open=true;u.runtime.build=function()error('Invalid scenario reached native reconstruction')end
+ u:load()
+ assert(u.scenario==original and #original.units==1 and u.noticeText:find('unit1',1,true))
+ assert(c.failures[1].restored=='unchanged');c.close()
+end)
 print(count..' persistence audit contracts passed ('..(persistenceAuditFile and 'anonymous file' or 'memory')..' fixture); native geometry and I/O remain separate acceptance scopes')

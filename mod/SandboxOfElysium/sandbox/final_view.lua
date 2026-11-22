@@ -13,7 +13,7 @@ function F.exportUnits(snapshot,limit)
     return out
 end
 function F.prepare(snapshot)
-    local plan={rows={},actors={},byUnit={},objects={},teamA=0,teamB=0,offField=0,dead=0,invalid=0,complete=false,source='unavailable'}
+    local plan={rows={},actors={},byUnit={},objects={},teamA=0,teamB=0,neutral=0,offField=0,dead=0,invalid=0,complete=false,source='unavailable'}
     if type(snapshot)~='table' or snapshot.source~='post_aftermath_before_upkeep' or not integer(snapshot.width) or not integer(snapshot.height) then return plan end
     plan.source=snapshot.source;plan.snapshot=snapshot
     plan.complete=truth(snapshot.complete) and #(snapshot.issues or {})==0
@@ -37,6 +37,7 @@ function F.prepare(snapshot)
             if valid and not plan.byUnit[row.unit] then
                 local team=row.kind=='actor' and (row.owner==0 and 1 or row.owner==24 and 2) or 0
                 local role=snapshot.classificationVersion==1 and FieldObjects.role(row) or nil
+                if role=='neutral' then team=3 end
                 local entry={native=row.unit,row=row,x=anchor.x,y=anchor.y,width=row.width,height=row.height,cells=cells,
                     monster=row.monster,hp=row.hp,team=team,kind=row.kind,role=role}
                 if role=='structure' then for key in pairs(cells) do plan.objects[key]=entry end end
@@ -44,6 +45,7 @@ function F.prepare(snapshot)
                 if row.kind=='actor' then
                     plan.actors[#plan.actors+1]=entry
                     if entry.team==1 then plan.teamA=plan.teamA+1 elseif entry.team==2 then plan.teamB=plan.teamB+1 end
+                    if entry.team==3 then plan.neutral=plan.neutral+1 end
                 end
             else plan.invalid=plan.invalid+1;plan.complete=false end
         end

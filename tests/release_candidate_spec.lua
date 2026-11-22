@@ -61,3 +61,18 @@ assert(type(button)=='function' and not start)
 button()
 assert(waits and seen:find('compatible CoE5SE',1,true) and not start)
 print('6 release boundary checks passed')
+
+local caps={unitRetirement=1,initialDeploymentVersion=1,exactDeploymentVersion=1,configuration=1}
+coe5.testFieldEditorCapabilities=function()return caps end
+coe5.setTestFieldDeployment=noop;coe5.testFieldInitialDeployment=noop
+coe5.testFieldLoadoutState=noop
+waits=false;button()
+assert(waits and not start)
+coe5.setTestFieldConfiguration=noop;caps.configuration=0
+waits=false;button()
+assert(waits and not start)
+print('PASS the release entry refuses missing and unavailable native configuration')
+caps.configuration=1
+waits=false;button()
+assert(start and not waits)
+print('PASS the release entry accepts full configuration without the old setter')

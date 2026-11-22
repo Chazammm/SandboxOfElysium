@@ -50,7 +50,7 @@ function D.place(r,s,observed)
             local _,why=r:quarantine(s,'deployment_source_unverified',nil,{model_id=u.id,native_id=id})
             return true,false,why
         end
-        rows[i]={unit=id,x=u.x,y=u.y,generation=native.generation}
+        if not u.scenery then rows[#rows+1]={unit=id,x=u.x,y=u.y,generation=native.generation} end
         source.units[i].x=native.anchors[1].x;source.units[i].y=native.anchors[1].y
     end
     local options=provisional and{initialReceipt=observed.initialReceipt.token}or nil

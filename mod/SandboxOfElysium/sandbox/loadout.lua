@@ -1,5 +1,4 @@
--- Exact, identity-based equipment/base-school configuration. All mutations go
--- through the separate owned-test-field native transaction, never templates.
+-- Exact equipment and school configuration for owned test-field actors.
 local M=require('sandbox.model')
 local Condition=require('sandbox.condition')
 local L={}
@@ -55,7 +54,7 @@ function L.validate(state,unit,why)
     return state
 end
 function L.read(r,unit)
-    if not L.available(r.api) then return nil,'Equipment and base-school editing need the newer experimental Extender.' end
+    if not L.available(r.api) then return nil,'Equipment and base-school editing need a compatible CoE5SE build.' end
     local called,state,why=pcall(r.api.testFieldLoadoutState,unit)
     if not called then return nil,'Native configuration readback failed: '..tostring(state)end
     return L.validate(state,unit,why)
@@ -196,6 +195,87 @@ function L.omitStartingItems(r,unit)
     if r.diag then r.diag:record('omit_starting_items',{native_id=unit,count=present,result='all positions empty; original spell order and organ flags retained'})end
     return true
 end
+
+local stockImplants={
+    [182]='Spirit Eye', [183]='Eye of the Night', [184]='Eye of the Old One', [185]='Crystal Heart',
+}
+
+-- The native item writer runs equip effects. Use it only on the new actors
+-- of an exact rebuild, which can be discarded if verification fails. The
+-- rebuild restores the saved injury bits after the loadout has been applied.
+local function prepareImplants(r,u,unit,state,wanted)
+    if not u.equipment or not u.condition or type(r.api.loadedContentOrigin)~='function' or
+        type(r.api.set)~='function' or not Condition.available(r.api) then return state end
+    local difference={}
+    for i,slot in ipairs(state.items) do
+        if slot.permanentEffects and stockImplants[slot.id] then
+            difference[slot.id]=(difference[slot.id] or 0)-1
+        end
+        local saved=wanted.items[i]
+        if stockImplants[saved] then difference[saved]=(difference[saved] or 0)+1 end
+    end
+    local needed=false
+    for id,count in pairs(difference) do
+        if count~=0 then needed=true end
+        local item=r.catalog.byItemId[id]
+        local called,origin=pcall(r.api.loadedContentOrigin,'item',id)
+        if not item or item.name~=stockImplants[id] or item.slot~=7 or not called or
+            type(origin)~='table' or origin.id~=id or origin.kind~='baseline' or origin.observed~=true then
+            return state
+        end
+    end
+    if not needed then return state end
+
+    -- Keep implants already present in the desired counts. The owned loadout
+    -- transaction will place them exactly without reapplying their effects.
+    local writes,planned,expected={},{},{}
+    for i,slot in ipairs(state.items) do
+        planned[i]=slot.id;expected[i]=slot.id
+        if slot.permanentEffects and (difference[slot.id] or 0)<0 and wanted.items[i]~=slot.id then
+            writes[#writes+1]={index=i,item=-1}
+            planned[i]=-1
+            difference[slot.id]=difference[slot.id]+1
+        end
+    end
+    local function canSeed(i)
+        local slot,id=state.items[i],planned[i]
+        return slot.slotType==7 and not stockImplants[id] and (id~=slot.id or not slot.permanentEffects)
+    end
+    for i,id in ipairs(wanted.items) do
+        if (difference[id] or 0)>0 then
+            local target
+            if canSeed(i) then target=i
+            else for index=1,#planned do if canSeed(index) then target=index;break end end end
+            if not target then return state end
+            writes[#writes+1]={index=target,item=id}
+            planned[target]=id
+            difference[id]=difference[id]-1
+        end
+    end
+    local before=Condition.read(r,unit)
+    if not before or before.monster~=u.monster or not state.generation or before.generation~=state.generation then
+        return nil,'The recreated actor could not be verified before restoring implants.'
+    end
+    for _,write in ipairs(writes) do
+        local called=pcall(r.api.set,'unitItem',unit,write.index-1,write.item)
+        local after=L.read(r,unit)
+        local condition=Condition.read(r,unit)
+        expected[write.index]=write.item
+        if not called or not after or not condition or after.generation~=before.generation or
+            condition.generation~=before.generation or condition.monster~=before.monster or
+            ((condition.injuryFlags~before.injuryFlags)&(~0x700000))~=0 then
+            return nil,'The native implant write could not be verified.'
+        end
+        for i,slot in ipairs(after.items) do
+            if slot.id~=expected[i] or (stockImplants[slot.id] and slot.permanentEffects~=true) then
+                return nil,'Native implant restoration changed an unexpected slot or failed to apply an implant.'
+            end
+        end
+        state=after
+    end
+    return state
+end
+
 function L.configure(r,u,unit,restoring,options)
     local state,why=L.read(r,unit);if not state then return false,why end
     if not u.baseline then
@@ -204,6 +284,13 @@ function L.configure(r,u,unit,restoring,options)
         return state.valid==true,state.valid==true and nil or 'Native starting configuration is invalid.'
     end
     local wanted;wanted,why=L.wanted(r,u,state);if not wanted then return false,why end
+    if restoring and options and options.recreated then
+        state,why=prepareImplants(r,u,unit,state,wanted)
+        if not state then
+            r.lastConfig={model_id=u.id,native_id=unit,name=u.name,configuration_result='implant_replay_unverified',rollback_verified=false}
+            return false,u.name..': '..why,{rollbackVerified=false}
+        end
+    end
     if restoring then wanted.restoreKnown=true end
     if options and options.removeCursed then wanted.removeCursed=M.copy(options.removeCursed) end
     if options and options.clearHeldItems then wanted.clearHeldItems=true end
@@ -220,7 +307,12 @@ function L.configure(r,u,unit,restoring,options)
         r.lastConfig['configuration_'..key]=detail[key]
     end end
     r:observeSpellSelection(u,unit,ok and nil or reason,detail)
-    if not ok then return false,'Configuration refused: '..tostring(reason),detail end
+    if not ok then
+        if restoring and reason=='permanent_anatomy_item_unsupported' then
+            return false,('%s was recreated with different permanent implants. CoE5SE cannot safely restore the saved eye or heart implants.'):format(u.name),detail
+        end
+        return false,'Configuration refused: '..tostring(reason),detail
+    end
     local matched;matched,why=L.matches(r,u,unit)
     if not matched then return false,why,{rollbackVerified=false} end
     local observed;observed,why=L.read(r,unit);if not observed then return false,why,{rollbackVerified=false}end
@@ -260,7 +352,7 @@ function L.equip(r,u,position,item,expected)
         local options
         if not item and slot.cursed then
             local caps=type(r.api.testFieldEditorCapabilities)=='function' and r.api.testFieldEditorCapabilities() or {}
-            if caps.cursedRemoval~=1 then return false,'Removing a cursed item needs the updated experimental Extender. Previous configuration unchanged.' end
+            if caps.cursedRemoval~=1 then return false,'Removing a cursed item needs a compatible CoE5SE build. Previous configuration unchanged.' end
             options={removeCursed={position=position,item=slot.id}}
         end
         local found=false

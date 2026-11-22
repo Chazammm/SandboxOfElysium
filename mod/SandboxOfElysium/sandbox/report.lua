@@ -41,11 +41,11 @@ end
 function Report:start(s,runtime)
     self.active=true;self.stack={};self.damageStack={};self.direct={};self.itemSpellAttacks={};self.unattributed=0
     self.started=self.api.get('ticksMs');self.initial={};self.aftermath={};self.scenario=M.copy(s)
-    for _,u in ipairs(s.units) do
+    for _,u in ipairs(s.units) do if not u.scenery then
         local unit=runtime.live[u.id]
         local row=runtime.verified and runtime.verified.rows and runtime.verified.rows[unit]
         self.initial[u.id]={native=unit,generation=row and row.generation,kills=self.api.get('unitKills',unit)}
-    end
+    end end
 end
 function Report:finish(s,runtime)
     self.active=false
@@ -64,8 +64,9 @@ function Report:finish(s,runtime)
         population='Original roster only. Native map features and summons are excluded. Results use the original team and verified actor identity when available.',
         final_position_count=0,aftermath_position_count=0,captured_original_position_count=0,
         positions='Return-time cells and any observed aftermath cells are separate; no reconstructed native final scene'},
-        teamA={start=0,survivors=0,losses=0,unverified=0},teamB={start=0,survivors=0,losses=0,unverified=0},types={}}
-    for _,u in ipairs(s.units) do
+        teamA={start=0,survivors=0,losses=0,unverified=0},teamB={start=0,survivors=0,losses=0,unverified=0},
+        neutral={start=0,survivors=0,losses=0,unverified=0},types={}}
+    for _,u in ipairs(s.units) do if not u.scenery then
         local initial=self.initial[u.id];local unit=initial.native
         local finalRow=captured[unit]
         if finalRow and initial.generation~=nil and finalRow.generation~=initial.generation then finalRow=nil end
@@ -84,7 +85,7 @@ function Report:finish(s,runtime)
             outcomeScope='original generation at final snapshot'
         end
         local outcome=type(hp)~='number' and 'unverified' or hp>0 and 'survivors' or 'losses'
-        local t=u.team==1 and out.teamA or out.teamB
+        local t=u.team==1 and out.teamA or u.team==2 and out.teamB or out.neutral
         t.start=t.start+1;t[outcome]=t[outcome]+1
         local key=u.team..'_'..u.monster
         local kind=out.types[key] or {team=u.team,monster=u.monster,name=u.name,start=0,survivors=0,losses=0,unverified=0}
@@ -101,7 +102,7 @@ function Report:finish(s,runtime)
             captured_x=finalAnchor and finalAnchor.x or 'unavailable',captured_y=finalAnchor and finalAnchor.y or 'unavailable',
             kills_delta=kills and initial.kills and kills-initial.kills or 'unavailable',
             observed_direct_hp_loss=current and self.hooks.damage and self.hooks.attack and (self.direct[unit] or 0) or 'unavailable'}
-    end
+    end end
     if final then
         out.summary.final_snapshot_source=final.source;out.summary.final_snapshot_complete=final.complete and 1 or 0
         out.summary.final_scene_complete=0;out.summary.final_snapshot_units=#(final.units or {});out.summary.final_snapshot_cells=#(final.grid or {})
@@ -123,15 +124,27 @@ function Report:finish(s,runtime)
     for key,count in pairs(self.itemSpellAttacks) do out['item_spell_attack_'..key]={count=count} end
     self.result=out;return out
 end
-function Report:export(name)
-    if not self.result then return false end
+local function writeReport(self,name)
     local out=M.copy(self.result);out.types=nil
     for key,row in pairs(self.result.types) do out['type_'..key]=M.copy(row) end
     return self.api.writeIni(name,out)
 end
-function Report:freeName(prefix)
+local function storedNames(api)
     local used={}
-    for _,name in ipairs(self.api.listIni()) do used[name:gsub('%.ini$',''):lower()]=true end
+    for _,name in ipairs(api.listIni()) do used[name:lower()]=true end
+    return used
+end
+function Report:export(name)
+    if not self.result then return false,'No battle report is available.' end
+    if M.reservedDataName(name) then return false,'Choose a name outside the reserved Sandbox records.' end
+    if storedNames(self.api)[name:lower()] then
+        return false,'A file already uses that name. Choose an unused name.'
+    end
+    if not writeReport(self,name) then return false,'Check the file name and data quota.' end
+    return true
+end
+function Report:freeName(prefix)
+    local used=storedNames(self.api)
     for i=1,10000 do local name=prefix..'-'..i;if not used[name:lower()] then return name end end
 end
 function Report:archive()
@@ -142,19 +155,21 @@ function Report:archive()
     local session=context and context.environment and context.environment.session or 'local'
     session=tostring(session):gsub('[^%w%-]',''):sub(1,32)
     if session=='' then session='local' end
-    if not self.legacyArchived then
-        local previous=self.api.readIni('last-battle')
-        if previous then
-            local previousName=self:freeName('battle-previous-'..session)
-            if not previousName or not self.api.writeIni(previousName,previous) then return nil,'Previous report could not be archived; last-battle was kept.' end
-        end
+    local previous=self.api.readIni('last-battle')
+    local occupied=previous~=nil or storedNames(self.api)['last-battle']
+    local previousReport=type(previous)=='table' and type(previous.summary)=='table'
+        and previous.scenario==nil and not M.isNavalScenario(previous)
+    local keepLegacy=occupied and not previousReport
+    if not self.legacyArchived and previousReport then
+        local previousName=self:freeName('battle-previous-'..session)
+        if not previousName or not self.api.writeIni(previousName,previous) then return nil,'Previous report could not be archived; last-battle was kept.' end
         self.legacyArchived=true
     end
     local name=self:freeName('battle-'..session)
-    if not name or not self:export(name) then return nil,'Report archive refused (file limit or quota); previous reports were kept.' end
+    if not name or not writeReport(self,name) then return nil,'Report archive refused (file limit or quota); previous reports were kept.' end
     self.archiveName=name
-    local legacy=self:export('last-battle')
-    if legacy then return name end
+    if keepLegacy then return name,'Existing last-battle data was kept.' end
+    if writeReport(self,'last-battle') then self.legacyArchived=true;return name end
     return name,'Archive saved; compatibility last-battle could not be updated.'
 end
 return Report

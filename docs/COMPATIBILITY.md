@@ -1,25 +1,25 @@
-# Compatibility
+# Compatibility and known limitations
 
-| Pairing | Status |
-| --- | --- |
-| CoE5 5.43 x64 on Windows with the local non-naval reference build | Full candidate test pairing. See the [test report](TEST-RELEASE-CANDIDATE-2026-11-19.md) for the exact inputs and coverage. |
-| CoE5 5.43 x64 on Windows with the separately built upstream review stack | Current candidate pairing. See the [combined-build report](TEST-COMBINED-PRESENTATION-2026-11-19.md) for source revisions and verification. The version number alone does not identify this build. |
-| Official CoE5SE 3.6.0, dev `b9cd9453912d92474c41eb51240683039292dd0a` | Includes the merged first test-field contribution. The full editor remains unavailable because the candidate depends on additional safety and feature APIs. |
-| Earlier CoE5SE, Mac, Linux, other game executables, multiplayer | No full-candidate acceptance. Use the tested Windows pairing for local review. |
+## Tested configuration
 
-The first merged contribution implements the owned test-field lifecycle and basic terrain, placement and inspection, equipment and spells, loaded content origin and the main-menu ranged query. The active local candidate additionally uses these API groups.
+- **Game:** Conquest of Elysium 5 **5.43 x64 on Windows**.
+- **Dependency:** official **CoE5SE 3.8.2**, installed separately. Use the release ZIP and its Windows instructions. [Download](https://github.com/musical-pianist/coe5se/releases/tag/CoE5SE-v3.8.2)
+- **Play:** Standalone single-player battles from the main menu. Other game versions, macOS, Linux, Proton and multiplayer are outside the verified beta configuration.
 
-| Group | What Sandbox uses it for |
-| --- | --- |
-| Permanent retirement and identity | Remove units and failed placements without leaving regenerating actors. Verify native closure before rebuilding. |
-| Owned contexts and width | Track native map context and structure provenance in sieges. Apply width floors. Support independent water actors and report drowning risk. |
-| Exact placement and initial deployment | Reapply saved targets with checks on the full roster and footprints. Use an authenticated one-use receipt if the first native deployment temporarily overlaps. |
-| Configuration and names | Restore supported individual names, bounded health/XP/kills/injury state, starting equipment policy and ordered spells. |
-| Native unit type View | Make a verified temporary preview for the real game card. Random spells in a preview are examples. Starting items are omitted. |
-| Presentation | Native zoom, Fit/pan/centering, preview feedback and native combat-log visibility. |
+## Neutral scenery and battlefields
 
-The upstream review stack covers these groups in separate Extender commits. The viewport and unit-type View use the verified native ABI with Clang 23 on Windows. The local reference and upstream review stack have separate evidence. See the [API dependency map](COE5SE-API-DEPENDENCIES-2026-11-19.md).
+Neutral placement offers 142 stock wall, parapet and stair variants on supported land and siege maps. Cycle the Neutral filter to find Walls, Parapets or Stairs. Search by name or an exact ID such as `#1397`. Ordinary troops, plants, mod-defined scenery, multi-cell structures and authored gates are outside this placement catalog. Map-generated gates retain their native siege ownership and can be inspected when their identity is verified.
 
-Save schema 4 records exact positions and supported configuration. Older schemas can be loaded, with missing fields represented by native defaults and migration to a new copy. Required loaded content is checked. Incompatible or missing items, spells, mods or API contracts can prevent reconstruction. A fresh unit with a different permanent implant may refuse exact restore. The editor does not reroll a saved loadout or spell selection to make it fit.
+Sea, Deep Sea and Coastal Hamlet support independent actors and native drowning rules. Neutral authoring, ships and passengers are unavailable on these maps. Existing naval setups and older saves with unsupported Neutral actors are preserved when the editor refuses to reconstruct them.
 
-Post-battle snapshots show supported native actors and cells rather than the complete rendered scene. Combat reports have limited damage and spell attribution. Arbitrary mod combinations, native effects beyond the supported saved fields, custom battlefield replacements, additional map contexts and naval battles remain outside this candidate's verified scope.
+## Units and saved state
+
+Enabled mods can add searchable units, items and spell schools. A saved setup can require the same enabled mods and loaded content. Missing or changed definitions may prevent exact reconstruction. Reopening Sandbox refreshes the catalog after a native mod change. While the game remains open, an in-memory setup is kept for its original enabled mod list. Code or plugin mods that CoE5SE asks you to restart for still follow its restart prompt.
+
+**View** opens a temporary native unit card. It omits starting items, and randomized preview spells may differ from the placed unit's spells. Equipment slots, school limits and spell rules still apply. Editing changes existing base schools.
+
+Save/Load, Reset and Rematch recreate the pre-battle setup, including exact positions, supported injuries, equipment, spells and native names where available. Stock implant recovery covers **Spirit Eye, Eye of the Night, Eye of the Old One and Crystal Heart** when the saved item slots and actor state are present and their stock definitions can be verified. Direct implant installation from the equipment UI is unavailable. Modified or unknown implants, and older saves missing necessary state, may still be refused safely.
+
+Post-battle views capture supported actors and cells. Reports have partial damage and spell attribution. Scene effects, poison/bleeding counters and other opaque native state fall outside exact reconstruction.
+
+[Installation and recovery instructions](../INSTALLATION.md)

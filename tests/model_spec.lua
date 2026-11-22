@@ -51,7 +51,7 @@ test('Forest survives scenario roundtrip',function() local source=M.copy(s);sour
 test('missing or changed Forest is rejected',function() local source=M.copy(s);source.terrain=2;local c=M.copy(cat);c.terrainById[2].name='Different';assert(not M.decode(M.encode(source,{}),c,{})) end)
 test('legacy extender refuses Forest before touching an open field',function()
     local R=require('sandbox.runtime');local r=R.new({},cat);r.open=true
-    local ok,why=r:build({terrain=2});assert(not ok and why:find('experimental'));assert(r.open)
+    local ok,why=r:build({terrain=2});assert(not ok and why:find('CoE5SE terrain API',1,true));assert(r.open)
 end)
 test('incompatible terrain capability reply is refused without engine calls',function()
     local R=require('sandbox.runtime');local r=R.new({testFieldTerrains=function()return 'incompatible' end},cat)

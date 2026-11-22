@@ -58,6 +58,7 @@ local function baseline()
 end
 local function regression()
     local R=require('sandbox.runtime');local D=require('sandbox.diagnostics');local Report=require('sandbox.report');local c=C.read(api)
+    local L=require('sandbox.loadout')
     local function fresh(terrain)
         local d=D.new(api);local r=R.new(api,c,d);local s=scenario();s.terrain=terrain or 0
         local ok,why=r:build(s,true);assert(ok,why);return r,s,d
@@ -88,8 +89,14 @@ local function regression()
         assert(r.emptyEditor and r.primaryId==nil,'production runtime did not use the commander-free editor')
         local id=tonumber(s.units[1].baseline.known[1]:match('^(%d+):'))
         local bad={{known={id,id},memorized={}},{known={-1},memorized={}},{known={[2]=id},memorized={}},{known={},memorized={id}},{known={'1'},memorized={}},{known=true,memorized={}}}
-        for i,state in ipairs(bad) do local ok,why=api.setTestFieldSpells(unit,state);assert(not ok and why,'bad state accepted '..i);assert(signature(unit)==before) end
-        local ok,why=api.setTestFieldSpells(-1,{known={},memorized={}});assert(not ok and why=='bad_unit')
+        local wanted=assert(L.wanted(r,s.units[1],assert(L.read(r,unit))))
+        for i,state in ipairs(bad) do
+            wanted.known,wanted.memorized=state.known,state.memorized
+            local ok,why,detail=api.setTestFieldConfiguration(unit,wanted)
+            assert(not ok and why and detail.rollbackVerified,'bad state accepted or rollback unverified '..i)
+            assert(signature(unit)==before)
+        end
+        local ok,why=api.setTestFieldConfiguration(-1,{});assert(not ok and why=='bad_unit')
         local removed,candidate=r:remove(s,s.units[1]);assert(removed,tostring(candidate));s=candidate
         assert(#s.units==1 and M.count(s,1)==0 and M.count(s,2)==1 and r.live[1]==nil,'first ordinary Team A unit could not be removed')
         local ready,reason=r:ready(s);assert(ready,tostring(reason));assert((api.get('unitHp',unit)or 0)<=0)
@@ -115,9 +122,11 @@ local function regression()
         local bad=M.copy(s);bad.units[1].x=-1;ok,why=r:build(bad);assert(not ok and r.open,'bad rebuild did not keep previous army')
         assert(spells(r.live[1],'unitKnownSpell',59)==known and spells(r.live[1],'unitMemorizedSpell',29)==mem)
         local snapshot=M.copy(s);local denied=0
+        local wanted=assert(L.wanted(r,s.units[1],assert(L.read(r,r.live[1]))))
+        wanted.known,wanted.memorized={},{}
         local observer=api.observe('BATTLE_ADVANCE_UNIT',function()
             if not probeFight then return end
-            local accepted,reason=api.setTestFieldSpells(r.live[1],{known={},memorized={}})
+            local accepted,reason=api.setTestFieldConfiguration(r.live[1],wanted)
             if not accepted and reason=='in_fight' then denied=denied+1 end
         end)
         local report=Report.new(api)

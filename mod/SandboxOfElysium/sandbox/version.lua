@@ -1,1 +1,1 @@
-return '0.2.0-rc.1'
+return '0.2.0-beta.2'

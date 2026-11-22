@@ -1,5 +1,9 @@
 local C={}
 local M=require('sandbox.model')
+-- Names observed in the battlefield-object audit. This is a discovery aid,
+-- not evidence that an instance is neutral or an exhaustive classification.
+local objectCandidates={['bronze wall']=true,['wooden gate']=true,bush=true,cabbage=true,
+    ['stone stairs']=true,['wooden stairs']=true}
 -- SDL text is UTF-8. Keep editing/truncation on codepoint boundaries and fold
 -- the Latin characters used by the German UI without depending on OS locale.
 function C.fold(text)
@@ -63,6 +67,7 @@ function C.read(api)
         local name=api.get('monsterName',i)
         if name and name~='' then
             local m={id=i,name=name,sprite=api.get('monsterSprite',i),categories={}}
+            if objectCandidates[C.fold(name)] then m.categories.object_candidate=true end
             local known,definer=pcall(api.get,'monsterMod',i)
             if known and type(definer)=='string'and definer~=''then
                 m.definitionMod=definer;m.originScope='defined by mod';m.categories.modded=true
@@ -76,6 +81,19 @@ function C.read(api)
             if ranged==true then m.categories.ranged=true
             elseif ranged~=false then c.rangedUnknown=c.rangedUnknown+1 end
             c.monsters[#c.monsters+1]=m; c.byId[i]=m
+        end
+    end
+    if type(api.testFieldSceneryTypes)=='function' then
+        local ok,info=pcall(api.testFieldSceneryTypes)
+        if ok and type(info)=='table' and info.version==1 then
+            for _,row in ipairs(info.types or {}) do
+                local entry=c.byId[row.monster]
+                if entry and row.owner==31 and row.layer=='object' and row.width==1 and row.height==1 then
+                    entry.scenery=true;entry.sceneryStandable=row.standable==true
+                    entry.sceneryRole=row.role
+                    entry.categories.object_candidate=true
+                end
+            end
         end
     end
     table.sort(c.monsters,function(a,b) local x,y=C.fold(a.name),C.fold(b.name); return x==y and a.id<b.id or x<y end)
@@ -124,5 +142,12 @@ function C.filter(c,search,category)
     for _,m in ipairs(c.monsters) do
         if C.fold(m.name):find(search,1,true) and (category=='All' or m.categories[category]) then out[#out+1]=m end
     end; return out
+end
+function C.recordObjectRole(catalog,monster,role)
+    local entry=catalog.byId and catalog.byId[monster]
+    if not entry then return end
+    entry.observedObjectRoles=entry.observedObjectRoles or {}
+    entry.observedObjectRoles[role]=true
+    entry.categories.object_candidate=true
 end
 return C

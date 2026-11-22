@@ -24,12 +24,15 @@ local function pointerButtons(api,legacy)
     if type(value)~='number'or value%1~=0 or value<0 or value>7 then return nil end
     return value
 end
+-- CoE5 5.43 Windows maps left and right Ctrl to these held-key indices.
+local leftCtrl,rightCtrl=224,228
 local kinds={'Single','Horizontal Row','Vertical Row','Square'}
-local categories={'All','human','animal','undead','demonic','flying','ranged','modded','unknown_origin'}
-local categoryLabels={modded='Modded Units',unknown_origin='No mod definition'}
+local categories={'All','object_candidate','human','animal','undead','demonic','flying','ranged','modded','unknown_origin'}
+local neutralFilters={'All Supported','Walls','Parapets','Stairs','Gates'}
+local categoryLabels={object_candidate='Object candidates',modded='Modded Units',unknown_origin='No mod definition'}
 local function contains(t,v) for _,x in ipairs(t) do if x==v then return true end end;return false end
 function U.new(api)
-    local self=setmetatable({api=api,scenario=M.new(),team=1,formation=1,n=1,search='',category=1,page=1,
+    local self=setmetatable({api=api,scenario=M.new(),team=1,formation=1,n=1,search='',category=1,neutralFilter=1,page=1,
         phase='menu',message='',buttons={},lastMouse=0,pending=nil,native=false,context=nil},U)
     self.report=Report.new(api)
     self.diag=Diagnostics.new(api)
@@ -48,6 +51,10 @@ function U.new(api)
     self.waitHook=api.wrap('BATTLE_WAIT',function(next,b,m)
         local id=next(b,m)
         if self.clearBusy then return ClearBattlefield.wait(self)end
+        if self.formationBusy then
+            self:input(pointerButtons(api,true))
+            self.pending=nil;self.lastWheel=nil;api.set('mouseButtons',0);return 0
+        end
         if not self.inNativeMenu and self.phase=='fight'then return self:combatLogWait(id)end
         if not self.inNativeMenu and (self.phase=='prepare' or self.phase=='after') then
             local log=self:readLogState()
@@ -59,12 +66,12 @@ function U.new(api)
             -- Mutate in WAIT, then discard input until a fresh map is drawn.
             self:applyRequestedZoom()
             local engineButtons=api.get('mouseButtons') or 0
-            if self.zoomAwaitingDraw then api.set('mouseButtons',engineButtons&4);return 0 end
+            if self.zoomAwaitingDraw then self.deleteStroke=nil;api.set('mouseButtons',engineButtons&4);return 0 end
             local buttons=pointerButtons(api,true)
             if buttons==nil then
                 self:setSearchFocus(false)
                 api.set('mouseButtons',engineButtons&4)
-                self.pending=nil;self.releaseBarrier=true;self.dragOrigin=nil;self.dragVisited=nil;self.lastCell=nil
+                self.pending=nil;self.releaseBarrier=true;self.dragOrigin=nil;self.dragVisited=nil;self.deleteStroke=nil;self.lastCell=nil
                 if self.runtime and self.runtime.quarantine and not self.runtime.blocked then self.runtime:quarantine(self.scenario,'physical_pointer_unavailable',nil,{}) end
                 return 0
             end
@@ -82,12 +89,40 @@ function U.new(api)
     end)
     return self
 end
-function U:ensureCatalog()
-    if self.catalog then return end
-    self.catalog=Catalog.read(self.api);self.runtime=Runtime.new(self.api,self.catalog,self.diag)
-    self.filtered=Catalog.filter(self.catalog,'','All');self.selected=self.api.findMonster('Spearman')
-    local a=self.catalog.byId[self.selected];local b=self.catalog.byId[self.api.findMonster('Goblin')]
-    if a and b then M.add(self.scenario,a.id,a.name,1,8,9);M.add(self.scenario,b.id,b.name,2,18,9) end
+function U:ensureCatalog(reopen)
+    local previous=self.catalog
+    if previous and (not reopen or self.runtime.open or self.runtime.cleanupFailed) then return end
+    local catalog=Catalog.read(self.api)
+    local key=table.concat(catalog.mods,'\0')
+    local previousKey=previous and table.concat(previous.mods,'\0')
+    if previous and previousKey~=key then
+        self.modSetups=self.modSetups or {}
+        self.modSetups[previousKey]={scenario=self.scenario,snapshot=self.snapshot,runtime=self.runtime}
+        self.runtime.catalog=nil
+        local saved=self.modSetups[key]
+        self.modSetups[key]=nil
+        self.scenario=saved and saved.scenario or M.new()
+        self.snapshot=saved and saved.snapshot
+        self.runtime=saved and saved.runtime
+        self.message=saved and 'Returned to the kept setup for this mod list.'
+            or 'Active mods changed. The previous setup is kept for its original mod list.'
+    end
+    self.catalog=catalog
+    if self.runtime then
+        self.runtime.catalog=catalog
+    else
+        self.runtime=Runtime.new(self.api,catalog,self.diag)
+        local a=catalog.byId[self.api.findMonster('Spearman')]
+        local b=catalog.byId[self.api.findMonster('Goblin')]
+        if a and b then M.add(self.scenario,a.id,a.name,1,8,9);M.add(self.scenario,b.id,b.name,2,18,9) end
+    end
+    local oldType=previous and previousKey==key and previous.byId[self.selected]
+    local currentType=catalog.byId[self.selected]
+    if not previous then self.selected=self.api.findMonster('Spearman')
+    elseif not oldType or not currentType or oldType.name~=currentType.name or oldType.definitionMod~=currentType.definitionMod then self.selected=nil end
+    self.context=nil;self.finalContext=nil;self.selectedItem=nil;self.copyTemplate=nil;self.moving=nil
+    self.editWindow=nil;self.equipDialog=nil
+    self:refresh()
 end
 function U:prompt(title,prompt)
     self:setSearchFocus(false)
@@ -164,6 +199,7 @@ function U:setupRows()
         {locked and 0 or 15,'Multiple unique units: '..(s.allowMultipleUnique and 'On' or 'Off')..(self:multipleUniqueAvailable() and '' or ' (API unavailable)')},
         {locked and 0 or 17,'Field size: '..Battlefields.sizeLabel(s)..change},
         {locked and 0 or 18,'New units: '..(s.startingItems==false and 'omit starting equipment' or 'normal starting equipment')..change}}
+    if M.count(s,3)>0 then rows[#rows+1]={0,'Neutral scenery: '..count(3)} end
     if M.isSiegeTerrain(s.terrain)then rows[#rows+1]={0,'Siege: Team A attacks; Team B defends. Native structures stay outside the army roster.'}end
     if M.isWaterTerrain(s.terrain)then
         rows[#rows+1]={0,'Native water: units without flight, swimming or floating can drown. Ships/passengers are not supported.'}
@@ -190,7 +226,7 @@ function U:setupRows()
     return rows
 end
 function U:setup()
-    self:ensureCatalog()
+    self:ensureCatalog(true)
     while true do
         local s=self.scenario
         local available={};for id in pairs(self.catalog.testFieldTerrains) do available[#available+1]=id end;table.sort(available)
@@ -208,7 +244,7 @@ function U:setup()
             self:prepare(true)
         elseif id==4 then self:load()
         elseif id==5 then self:terrainBrowser()
-        elseif id==6 then self:notice(#available..' verified battlefield contexts are available with this Extender; other native contexts remain unavailable. Size choices require the release-next API and are minimums. '..(Loadout.available(self.api) and 'Equipment and existing base schools up to level 3 are editable. New schools and eye/heart implants are unavailable. ' or 'Equipment and base-school editing need the newer experimental Extender. ')..'Modded Units means a mod-defined unit; modified vanilla units are not identified by that getter. Health/XP/injury-bit restoration needs the release-next API and remains a subset: effects, poison/bleeding and opaque native state are not saved. Complete battle telemetry is unavailable.')
+        elseif id==6 then self:notice(#available..' verified battlefield contexts are available with this Extender; other native contexts remain unavailable. Size choices require compatible CoE5SE support and are minimums. '..(Loadout.available(self.api) and 'Equipment and existing base schools up to level 3 are editable. Adding schools and editing permanent implants directly are unavailable. ' or 'Equipment and base-school editing need a compatible CoE5SE build. ')..'Modded Units means a mod-defined unit; modified vanilla units are not identified by that getter. Health/XP/injury-bit restoration needs compatible CoE5SE support and remains a subset: effects, poison/bleeding and opaque native state are not saved. Complete battle telemetry is unavailable.')
         elseif id==7 then self:smallCheck()
         elseif id==9 and self.snapshot then self.scenario=M.copy(self.snapshot);self.message='Pre-battle setup selected; native restoration checked on Prepare'
         elseif id==10 then self:save()
@@ -306,7 +342,23 @@ function U:terrainBrowser()
     end
 end
 function U:refresh()
-    self.filtered=Catalog.filter(self.catalog,self.search,categories[self.category])
+    if self.team==3 then
+        local group=neutralFilters[self.neutralFilter]
+        local query=Catalog.fold(self.search)
+        self.filtered={}
+        self.neutralGroupAvailable=false
+        for _,entry in ipairs(self.catalog.monsters) do
+            local building=FieldObjects.neutralGroup(entry)
+            if building and (self.neutralFilter==1 or building==group) then
+                self.neutralGroupAvailable=true
+                if Catalog.fold(entry.name):find(query,1,true) or query==tostring(entry.id) or query=='#'..entry.id then
+                    self.filtered[#self.filtered+1]=entry
+                end
+            end
+        end
+    else
+        self.filtered=Catalog.filter(self.catalog,self.search,categories[self.category])
+    end
     self.page=math.max(1,math.min(self.page,math.max(1,math.ceil(#self.filtered/5))))
 end
 function U:setSearchFocus(on,target)
@@ -489,7 +541,7 @@ function U:viewInputBarrier()
 end
 function U:requestFit()
     if self.phase~='prepare'or not self.native or not self.runtime.open or self.runtime.blocked then return false end
-    if not self:viewportAvailable()then self:notice('Native Fit is unavailable. Use the updated experimental Extender; no fitted view was substituted.');return false end
+    if not self:viewportAvailable()then self:notice('Native Fit is unavailable. Use a compatible CoE5SE build; no fitted view was substituted.');return false end
     self.requestedFit=true;self.requestedZoom=nil;self.requestedZoomAnchor=nil
     self.releaseBarrier=true;self.dragBlocked=true;self.lastCell=nil;self.dragOrigin=nil
     return true
@@ -735,7 +787,12 @@ function U:unitAt(x,y)
         if unit and unit>=0 and (self.api.get('unitHp',unit) or 0)>0 then
             for _,u in ipairs(self.scenario.units) do if self.runtime.live[u.id]==unit then if found then return end;found=u end end
         end
-        return found
+        if found then return found end
+        local object=type(self.api.battleObjectAt)=='function' and self.api.battleObjectAt(x,y)
+        if type(object)=='number' and object>=0 then
+            for _,u in ipairs(self.scenario.units) do if u.scenery and self.runtime.live[u.id]==object then return u end end
+        end
+        return
     end
     if self.native then return end
     return M.at(self.scenario,x,y)
@@ -743,6 +800,10 @@ end
 function U:placementFootprint()
     local source=self.moving or self.copyTemplate
     local monster=source and source.monster or self.selected
+    if (source and source.team or self.team)==3 then
+        if not FieldObjects.neutralBuilding(self.catalog.byId[monster]) then return nil,'This template is unavailable in Neutral building mode' end
+        return {monster=monster,width=1,height=1,source='native_scenery_type'}
+    end
     local unit=source and self.runtime.live[source.id] or nil
     if type(self.api.testFieldFootprint)~='function' then return nil,'Footprint API unavailable' end
     local ok,footprint,why=pcall(self.api.testFieldFootprint,monster,unit)
@@ -770,8 +831,10 @@ function U:placementPreview(x,y)
     if not footprint then return {cells={},label='Footprint unknown: '..tostring(why)..'; native placement decides.',partial=true,anchorX=x,anchorY=y,fieldGeneration=self.runtime.generation} end
     if self.dragOrigin and self.lastMouse&2~=0 and not self.moving then x,y=Preview.snap(x,y,self.dragOrigin,self.dragOrigin.stepX,self.dragOrigin.stepY) end
     local anchors=self:placementAnchors(x,y,footprint)
+    local source=self.moving or self.copyTemplate
+    local neutral=(source and source.team or self.team)==3
     local plan={cells={},monster=footprint.monster,width=footprint.width,height=footprint.height,source=footprint.source,
-        partial=true,clear=0,blocked=0,outside=0,unknown=0,anchors=anchors,preflightAccepted=0,anchorX=x,anchorY=y,fieldGeneration=self.runtime.generation}
+        neutral=neutral,partial=true,clear=0,blocked=0,outside=0,unknown=0,anchors=anchors,preflightAccepted=0,anchorX=x,anchorY=y,fieldGeneration=self.runtime.generation}
     for _,anchor in ipairs(anchors) do
         local row
         if type(self.api.testFieldPlacementPreflight)=='function' then
@@ -799,6 +862,10 @@ function U:placementPreview(x,y)
             end
             if not cell.status then
                 cell.status=(cell.x<0 or cell.y<0 or cell.x>=self.runtime.width or cell.y>=20) and 'out_of_bounds' or 'unknown'
+            end
+            if neutral and cell.status~='out_of_bounds' then
+                local object=self.runtime.objects and self.runtime.objects[cell.x..':'..cell.y]
+                if object then cell.status='terrain';cell.reason='neutral_object_layer_occupied' end
             end
             if cell.status=='clear' then plan.clear=plan.clear+1
             elseif cell.status=='out_of_bounds' then plan.outside=plan.outside+1
@@ -832,6 +899,9 @@ function U:drawFieldObject(row,role,maxX,minY)
     api.ui.drawText(x+8,y+25,12,Catalog.textLimit(name,30,'...'),1,0.94,0.73,1)
     api.ui.drawText(x+8,y+9,10,label,0.82,0.87,0.9,1)
 end
+local neutralBackground={0.30,0.30,0.30}
+local neutralFill={'Neutral',0.55,0.55,0.55}
+local neutralPreviewFill={neutralFill[2],neutralFill[3],neutralFill[4]}
 function U:draw()
     if self.clearBusy then return ClearBattlefield.draw(self)end
     local api,ui=self.api,self.api.ui;local W,H=api.get('screenW'),api.get('screenH');local p=W-300
@@ -845,8 +915,8 @@ function U:draw()
             local x,y=api.battleCellToScreen(entry.x,entry.y)
             if x and y then
                 local size=self.view.cellSize;local w,h=entry.width*size,entry.height*size
-                if entry.team~=0 then
-                    local color=M.colors[self.scenario.colors[entry.team]]
+                local color=entry.team~=3 and M.colors[self.scenario.colors[entry.team]] or nil
+                if color then
                     ui.drawRect(x-size/2,y-size/2,w-1,h-1,color[2],color[3],color[4],0.72)
                 end
                 if drawMonster then drawMonster(x-size/2+1,y-size/2+1,w-2,h-2,entry.monster) end
@@ -893,12 +963,24 @@ function U:draw()
             local object=self.runtime.objects[x..':'..y]
             ui.drawRect(12+x*cell,52+y*cell,cell-0.6,cell-0.6,object and 0.32 or 0.16,object and 0.25 or 0.20,object and 0.12 or 0.16,1)
         end end
-        for _,u in ipairs(self.scenario.units) do local color=M.colors[self.scenario.colors[u.team]]
-            ui.drawRect(12+u.x*cell,52+u.y*cell,cell-0.6,cell-0.6,color[2],color[3],color[4],0.9)
-            ui.drawText(13+u.x*cell,53+u.y*cell,math.min(10,cell/2),(u.team==1 and 'A' or 'B')..u.id,1,1,1,1)
+        for _,u in ipairs(self.scenario.units) do
+            local x,y=12+u.x*cell,52+u.y*cell
+            local color=M.colors[self.scenario.colors[u.team]]
+            if color then ui.drawRect(x,y,cell-0.6,cell-0.6,color[2],color[3],color[4],0.9)
+            elseif u.team==3 then
+                local checked=self.runtime.verified
+                local row=checked and checked.rows and checked.rows[self.runtime.live[u.id]]
+                if u.scenery and FieldObjects.role(row)=='scenery' then
+                    local w,h=row.width*cell,row.height*cell
+                    if drawMonster then drawMonster(x,y,w,h,u.monster) end
+                end
+            end
+            ui.drawText(13+u.x*cell,53+u.y*cell,math.min(10,cell/2),({'A','B','N'})[u.team]..u.id,1,1,1,1)
         end
     end
     local gx,gy=self:pointerCell()
+    local hover=self.phase=='prepare' and gx and self:unitAt(gx,gy)
+    local rect=self:usableViewport()
     if self.phase=='prepare' and gx and (self.selected~=nil or self.moving) and not self.context and not self.selectedItem and self.catalogTab~='items' then
         local plan=self:placementPreview(gx,gy);self.previewInfo=plan
         if plan.width and plan.height then self.lastPreviewInfo=plan end
@@ -914,22 +996,44 @@ function U:draw()
             if cx and cy then
                 local color=c.status=='clear' and {0.15,0.75,0.40} or c.status=='out_of_bounds' and {0.95,0.15,0.72} or c.status=='unknown' and {0.92,0.65,0.15} or {0.95,0.18,0.12}
                 local left,bottom,w,h=cx-size/2+1,cy-size/2+1,size-2,size-2
-                if self.native then
-                    local rect=self:usableViewport();local right,top=math.min(left+w,rect.x+rect.width),math.min(bottom+h,rect.y+rect.height)
+                local opacity=0.38
+                if plan.neutral then
+                    if c.status=='clear' then
+                        color=neutralPreviewFill
+                        opacity=0
+                        local moving=self.moving
+                        if moving and c.x>=moving.x and c.x<moving.x+plan.width and
+                            c.y>=moving.y and c.y<moving.y+plan.height then opacity=0 end
+                    else
+                        -- Invalid/uncertain cells may already contain a sprite. Leave its center clear.
+                        local dot=math.min(6,w/3,h/3)
+                        left,bottom,w,h=left+w-dot,bottom+h-dot,dot,dot
+                        opacity=0.95
+                    end
+                end
+                if self.native or plan.neutral then
+                    local right,top=math.min(left+w,rect.x+rect.width),math.min(bottom+h,rect.y+rect.height)
                     left,bottom=math.max(left,rect.x),math.max(bottom,rect.y);w,h=right-left,top-bottom
                 end
-                if w>0 and h>0 then ui.drawRect(left,bottom,w,h,color[1],color[2],color[3],0.38)end
+                if opacity>0 and w>0 and h>0 then ui.drawRect(left,bottom,w,h,color[1],color[2],color[3],opacity)end
             end
         end
     end
     ui.drawRect(0,H-38,W,38,0.035,0.045,0.055,0.97)
     local rosterLabel=self.phase=='after' and 'Snapshot ' or 'Team '
     local finalCounts=self.finalPlan and self.finalPlan.source~='unavailable'
-    self:button('team1',rosterLabel..'A: '..(self.phase=='after' and (finalCounts and self.finalPlan.teamA or '?') or M.count(self.scenario,1)),10,H-32,98,26,self.team==1 and {0.16,0.32,0.52} or nil)
-    self:button('team2',rosterLabel..'B: '..(self.phase=='after' and (finalCounts and self.finalPlan.teamB or '?') or M.count(self.scenario,2)),116,H-32,98,26,self.team==2 and {0.16,0.32,0.52} or nil)
-    if self.phase=='prepare' then self:button('native',self.native and 'Planning grid' or 'Battle map',224,H-32,106,26) end
+    self:button('team1',rosterLabel..'A: '..(self.phase=='after' and (finalCounts and self.finalPlan.teamA or '?') or M.count(self.scenario,1)),10,H-32,78,26,self.team==1 and {0.16,0.32,0.52} or nil,11)
+    self:button('team2',rosterLabel..'B: '..(self.phase=='after' and (finalCounts and self.finalPlan.teamB or '?') or M.count(self.scenario,2)),94,H-32,79,26,self.team==2 and {0.16,0.32,0.52} or nil,11)
+    if self.phase=='prepare' then
+        local available=not M.neutralPlacementProblem(api,self.scenario.terrain)
+        self:button('team3',available and ('Neutral: '..M.count(self.scenario,3)) or 'Neutral N/A',180,H-32,82,26,
+            self.team==3 and available and neutralBackground or nil,11)
+        self:button('native',self.native and 'Planning grid' or 'Battle map',268,H-32,86,26,nil,10)
+    elseif finalCounts and (self.finalPlan.neutral or 0)>0 then
+        ui.drawText(182,H-24,11,'Neutral: '..self.finalPlan.neutral,0.85,0.86,0.87,1)
+    end
     if self.phase=='after'then self:drawLogToggle(536,H-32,162,26)end
-    self:button('diagnostics','Export Diagnostics',self.phase=='prepare'and 340 or 380,H-32,self.phase=='prepare'and 138 or 148,26,nil,11)
+    self:button('diagnostics','Export Diagnostics',self.phase=='prepare'and 360 or 380,H-32,self.phase=='prepare'and 118 or 148,26,nil,10)
     if self.phase=='prepare' and self.native then
         local zoom=self:zoomState()
         if zoom then
@@ -942,16 +1046,30 @@ function U:draw()
     end
     self:button('back',self.moving and 'Cancel move' or 'Back',W-94,H-32,84,26)
     ui.drawRect(0,0,W,38,0.035,0.045,0.055,0.98)
-    local hint=self.phase=='after' and 'Final snapshot is read only. Right-click a captured survivor for native Inspect where available.' or self.selectedItem and ('ITEM: '..Catalog.textLimit(self.selectedItem.name,42)..' - right-click a unit. Select again or Cancel item to clear.') or self.moving and 'MOVE: right-click destination; Cancel move keeps the original.' or (self.selected==nil or self.catalogTab=='items') and 'Right-click a unit: Inspect / Edit / Move / Copy / Delete.' or 'Right-click places. Existing unit: Inspect / Edit / Move / Copy / Delete.'
-    if self.phase=='prepare'and self.native and self:viewportAvailable()then
-        hint=Catalog.textLimit(hint,math.max(35,math.floor((W-20)/6)-46),'...')..' Pan: arrows / middle-drag; Fit: whole field.'
+    local hint=self.phase=='after' and 'Final snapshot is read only. Right-click a captured survivor for native Inspect where available.'
+        or self.selectedItem and ('ITEM: '..Catalog.textLimit(self.selectedItem.name,42)..' - right-click a unit. Select again or Cancel item to clear.')
+        or self.moving and 'MOVE: right-click destination; Cancel move keeps the original.'
+        or 'Right-click: place / unit actions.'
+    local textWidth=W-20
+    if self.phase=='prepare' then
+        local x=W>=1000 and math.floor(W*0.40) or W-203
+        textWidth=x-20
+        self:button('ctrldelete','Ctrl Right-click Delete: '..(self.ctrlDeleteEnabled and 'On' or 'Off'),
+            x,5,193,28,self.ctrlDeleteEnabled and {0.38,0.19,0.09} or nil,11)
+        if not self.selectedItem and not self.moving then
+            hint=hint..(self.ctrlDeleteEnabled and ' Hold Ctrl and right-drag to delete units.' or ' Pan: arrows / middle-drag; Fit: whole field.')
+        end
     end
-    ui.drawText(10,22,10,hint,1,1,0.9,1)
-    ui.drawText(10,5,10,self.message:sub(1,112),0.95,0.76,0.45,1)
+    local maxChars=math.max(24,math.floor(textWidth/5))
+    ui.drawText(10,22,10,Catalog.textLimit(hint,maxChars,'...'),1,1,0.9,1)
+    ui.drawText(10,5,10,Catalog.textLimit(self.message,math.min(112,maxChars),'...'),0.95,0.76,0.45,1)
     if self.phase=='after' then
         if gx and self.finalPlan and not self.finalContext then
             local entry=self.finalPlan.objects and self.finalPlan.objects[gx..':'..gy]
-            if entry and not FinalView.at(self.finalPlan,gx,gy) then
+            local actor=FinalView.at(self.finalPlan,gx,gy)
+            if actor and actor.role=='neutral' then
+                self:drawFieldObject(actor.row,actor.role,W,108)
+            elseif entry and not actor then
                 self:drawFieldObject(entry.row,entry.role,W,108)
             end
         end
@@ -963,21 +1081,27 @@ function U:draw()
         if self.finalContext then
             local x,y=math.max(5,math.min(W-180,self.finalContext.px)),math.max(145,math.min(H-45,self.finalContext.py))
             local entry=self.finalContext.entry;local name
-            if type(api.testFieldUnitName)=='function'then
+            local feature=entry.role=='scenery' or entry.role=='structure'
+            if feature then
+                local template=self.catalog.byId[entry.monster]
+                name=(template and template.name or 'Battlefield feature')..' | '..FieldObjects.label(entry.role,entry.row.owner)
+            elseif type(api.testFieldUnitName)=='function'then
                 local ok,state=pcall(api.testFieldUnitName,entry.native)
                 if ok and type(state)=='table'and state.generation==entry.row.generation then name=state.shown end
             end
             local width=math.min(W-20,math.max(250,name and #name*8+16 or 250));x=math.max(5,math.min(W-width-5,x))
             ui.drawRect(x-5,y-36,width+5,59,0.02,0.025,0.03,1)
+            if entry.team==3 then ui.drawRect(x-5,y-36,3,59,0.62,0.62,0.62,1) end
             ui.drawText(x+4,y+5,11,name or 'Native name unavailable after cleanup',1,0.94,0.73,1)
-            self:button('finalinspect','Inspect current native unit',x,y-30,width,26)
+            self:button('finalinspect',feature and 'Inspect native feature' or 'Inspect current native unit',x,y-30,width,26)
         end
         return
     end
     ui.drawText(12,H-57,11,(self.native and 'Native battle-map' or 'Compatibility planning grid')..' | '..(M.terrainNames[self.scenario.terrain] or 'Unknown')..(self:logAvailable()and''or' | log control N/A'),1,0.9,0.7,1)
     if self.previewInfo then
         ui.drawText(12,H-73,9,self.previewInfo.label,1,0.9,0.7,1)
-        ui.drawText(12,H-87,9,'Partial only; native placement decides. Green clear / red blocked / pink outside / amber unknown.',1,0.9,0.7,1)
+        local clear=self.previewInfo.neutral and 'Clear cells uncolored' or 'Green clear'
+        ui.drawText(12,H-87,9,'Partial only; native placement decides. '..clear..' / red blocked / pink outside / amber unknown.',1,0.9,0.7,1)
     end
     local selected=self.catalog.byId[self.selected]
     ui.drawRect(p,38,300,304,0.035,0.045,0.055,0.94)
@@ -1005,12 +1129,15 @@ function U:draw()
     self:button('catalogitems','Items',p+154,316,138,24,self.catalogTab=='items' and {0.16,0.32,0.46} or nil)
     if self.catalogTab=='items'then ConfigWindow.drawCatalog(self,p)else
     local unitSearchFocused=self.searchFocused and (self.textTarget==nil or self.textTarget=='units')
-    local searchLabel=self.search=='' and (unitSearchFocused and 'Type to search...' or 'Search units...') or Catalog.textLimit(self.search,28,'...')
+    local searchLabel=self.search=='' and (unitSearchFocused and 'Type to search...' or
+        (self.team==3 and 'Search buildings...' or 'Search units...')) or Catalog.textLimit(self.search,28,'...')
     self.searchRect={x=p+8,y=285,w=234,h=27}
     self:button('search',searchLabel..(unitSearchFocused and ' |' or ''),p+8,285,234,27,unitSearchFocused and {0.16,0.31,0.43} or nil)
     self:button('searchclear','Clear',p+246,285,46,27)
     local filterText='Filter: '..(categoryLabels[categories[self.category]]or categories[self.category])..' | '..#self.filtered..' results'
-    if categories[self.category]=='ranged' and (self.catalog.rangedUnknown or 0)>0 then filterText='Ranged unavailable/partial: update Extender' end
+    if self.team==3 then filterText=neutralFilters[self.neutralFilter]..' | '..#self.filtered..' results'
+    elseif categories[self.category]=='ranged' and (self.catalog.rangedUnknown or 0)>0 then filterText='Ranged unavailable/partial: update Extender'
+    elseif categories[self.category]=='object_candidate' then filterText='Object candidates | placed as team units' end
     self:button('filter',filterText,p+8,255,284,24)
     for row=1,5 do local index=(self.page-1)*5+row;local item=self.filtered[index];local y=251-row*36
         if item then
@@ -1019,12 +1146,26 @@ function U:draw()
             local drawn=drawMonster and drawMonster(p+11,y+3,32,28,item.id)
             if not drawn then ui.drawText(p+20,y+10,12,'?',0.65,0.7,0.75,1) end
             ui.drawText(p+50,y+20,10,Catalog.textLimit(item.name,20,'...'),1,0.95,0.85,1)
-            ui.drawText(p+50,y+6,9,'#'..item.id..' | A '..M.count(self.scenario,1,item.id)..' / B '..M.count(self.scenario,2,item.id),0.7,0.75,0.8,1)
+            local subtitle='A '..M.count(self.scenario,1,item.id)..' / B '..M.count(self.scenario,2,item.id)
+            if self.team==3 then subtitle=FieldObjects.neutralGroup(item)
+            elseif categories[self.category]=='object_candidate' then
+                local roles=item.observedObjectRoles or {}
+                subtitle=roles.scenery and (roles.structure and 'Scenery and gate seen' or 'Map scenery seen')
+                    or roles.structure and 'Native gate seen' or 'Name match only'
+            end
+            ui.drawText(p+50,y+6,9,'#'..item.id..' | '..subtitle,0.7,0.75,0.8,1)
             self:button('view:'..item.id,'View',p+194,y+5,42,24)
-            self:button('unit:'..index,'Select',p+240,y+5,50,24,item.id==self.selected and {0.18,0.34,0.5} or nil)
+            self:button('unit:'..index,'Select',p+240,y+5,50,24,item.id==self.selected and (self.team==3 and neutralBackground or {0.18,0.34,0.5}) or nil)
         end
     end
-    if #self.filtered==0 then ui.drawText(p+18,208,12,'No matching units. Clear search or filter.',0.95,0.85,0.65,1) end
+    if #self.filtered==0 then
+        local empty='No matching units. Clear search or filter.'
+        if self.team==3 then
+            empty=self.neutralGroupAvailable and 'No matching buildings in this group.' or 'No supported buildings in this group.'
+            if neutralFilters[self.neutralFilter]=='Gates' then empty='Native gates stay on their siege side.' end
+        end
+        ui.drawText(p+18,208,12,empty,0.95,0.85,0.65,1)
+    end
     self:button('prev','<',p+8,42,40,25);self:button('next','>',p+252,42,40,25)
     ui.drawText(p+65,50,11,self.page..' / '..math.max(1,math.ceil(#self.filtered/5))..(drawMonster and '' or ' | icon API missing'),0.8,0.8,0.8,1)
     if UnitView.nativeAvailable(api)then
@@ -1032,21 +1173,31 @@ function U:draw()
         ui.drawText(p+8,354,8,'Random spells may differ when placed.',0.85,0.87,0.80,1)
     end
     end
-    local hover=gx and self:unitAt(gx,gy)
     if hover and not self.context and not self.editWindow then
         local name=M.displayName(hover);local width=math.min(p-20,math.max(190,math.min(48,utf8 and utf8.len(name)or #name)*12+18))
         local x=math.max(5,math.min(p-width-5,self.api.get('uiPointerX')+14));local y=math.max(42,math.min(H-110,self.api.get('uiPointerY')+14))
         ui.drawRect(x,y,width,48,0.025,0.04,0.05,0.97);ui.drawText(x+8,y+29,12,name,1,0.94,0.73,1)
-        ui.drawText(x+8,y+10,10,hover.name..' | Team '..(hover.team==1 and'A'or'B')..' #'..hover.id,0.82,0.87,0.9,1)
+        if hover.team==3 then ui.drawRect(x,y,3,48,0.62,0.62,0.62,1) end
+        ui.drawText(x+8,y+10,10,hover.name..' | '..M.teamLabels[hover.team]..' #'..hover.id,0.82,0.87,0.9,1)
     elseif gx and self.runtime.fieldObjectAt and self.selected==nil and not self.context and not self.editWindow and not self.selectedItem and not self.moving then
         local object,role=self.runtime:fieldObjectAt(gx,gy)
         if object then self:drawFieldObject(object,role,p,42) end
     end
     if self.context then
-        local name=M.displayName(self.context.unit);local width=math.min(p-14,math.max(180,math.min(48,utf8 and utf8.len(name)or #name)*12+18))
+        local context=self.context
+        local template=context.feature and self.catalog.byId[context.feature.monster]
+        local name=context.unit and M.displayName(context.unit) or template and template.name or 'Battlefield feature'
+        local width=math.min(p-14,math.max(180,math.min(48,utf8 and utf8.len(name)or #name)*12+18))
         local x,y=math.max(5,math.min(p-width-5,self.context.px)),math.max(194,math.min(H-45,self.context.py))
-        ui.drawRect(x-3,y-153,width+6,186,0.02,0.025,0.03,1);ui.drawText(x+6,y+12,12,name,1,0.94,0.73,1)
-        for i,label in ipairs({'Inspect','Edit','Move','Copy','Delete'})do self:button('context:'..label,label,x,y-i*28,width,25)end
+        local authored=context.unit and context.unit.scenery
+        local actions=context.feature and {'Inspect'} or authored and {'Inspect','Move','Copy','Delete'} or {'Inspect','Edit','Move','Copy','Delete'}
+        local bottom=y-#actions*28-5
+        ui.drawRect(x-3,bottom,width+6,y+31-bottom,0.02,0.025,0.03,1)
+        if authored or context.feature then ui.drawRect(x-3,bottom,3,y+31-bottom,0.62,0.62,0.62,1) end
+        local label=context.feature and FieldObjects.label(context.role,context.feature.owner) or authored and 'Neutral scenery'
+        ui.drawText(x+6,y+12,12,name,1,0.94,0.73,1)
+        if label then ui.drawText(x+6,y-1,9,label,0.82,0.87,0.9,1) end
+        for i,label in ipairs(actions)do self:button('context:'..label,label,x,y-i*28,width,25)end
     end
     ConfigWindow.draw(self)
 end
@@ -1058,16 +1209,64 @@ function U:pointerCell()
     local g=self.grid;local x=math.floor((px-g.x)/g.cell);local y=math.floor((py-g.y)/g.cell)
     if x>=0 and x<g.width and y>=0 and y<20 then return x,y end
 end
+function U:traceDeletion(stroke,x,y)
+    if not x then stroke.x,stroke.y=nil,nil;return end
+    if x==stroke.x and y==stroke.y then return end
+    local cx,cy=stroke.x or x,stroke.y or y
+    stroke.x,stroke.y=x,y
+    local dx,dy=math.abs(x-cx),math.abs(y-cy)
+    local sx,sy=cx<x and 1 or -1,cy<y and 1 or -1
+    local err=dx-dy
+    local ids={}
+    -- Sample skipped cells along the stroke when the pointer moves faster than frames.
+    while true do
+        local unit=self:unitAt(cx,cy)
+        if unit and not unit.scenery and not stroke.seen[unit.id] then
+            stroke.seen[unit.id]=true
+            ids[#ids+1]=unit.id
+        end
+        if cx==x and cy==y then break end
+        local step=2*err
+        if step>-dy then err=err-dy;cx=cx+sx end
+        if step<dx then err=err+dx;cy=cy+sy end
+    end
+    if #ids>0 then self.pending={deleteUnits=ids} end
+end
 function U:input(mouse)
     if self.clearBusy then return true end
+    if self.formationBusy then
+        if mouse~=nil then
+            if mouse&2==0 then self.lastCell=nil;self.dragOrigin=nil;self.dragVisited=nil;self.dragBlocked=false
+            elseif self.lastMouse&2==0 then self.dragBlocked=true end
+            self.lastMouse=mouse
+        end
+        return true
+    end
     if self.native and type(self.api.battleView)=='function' then self.view=self.api.battleView() or self.view end
     local freshLeft=mouse&1~=0 and self.lastMouse&1==0
     local freshRight=mouse&2~=0 and self.lastMouse&2==0
     local x,y=self.api.get('uiPointerX'),self.api.get('uiPointerY');local consumed=false
+    if mouse&2==0 then self.deletePress=nil;self.deleteStroke=nil end
     if self.releaseBarrier then
-        self.lastMouse=mouse;self.lastCell=nil;self.dragOrigin=nil;self.dragBlocked=true
+        self.lastMouse=mouse;self.lastCell=nil;self.dragOrigin=nil;self.dragBlocked=true;self.deleteStroke=nil
         if mouse&3==0 then self.releaseBarrier=nil;self.dragBlocked=false end
         return true
+    end
+    if self.phase=='prepare' and mouse&2~=0 then
+        local ctrl=self.api.get('keyHeld',leftCtrl)==true or self.api.get('keyHeld',rightCtrl)==true
+        if self.deletePress or ctrl then
+            self.deletePress=true
+            local allowed=ctrl and self.ctrlDeleteEnabled and mouse&5==0 and not self.runtime.blocked and not self.noticeText
+                and not self.context and not self.editWindow and not self.equipDialog
+                and not self.searchFocused and not self.moving and not self.selectedItem
+            local gx,gy
+            if allowed then gx,gy=self:pointerCell() end
+            if freshRight and gx then self.deleteStroke={seen={}}
+            elseif not allowed then self.deleteStroke=nil end
+            if self.deleteStroke then self:traceDeletion(self.deleteStroke,gx,gy) end
+            self.lastMouse=mouse;self.lastCell=nil;self.dragOrigin=nil;self.dragVisited=nil;self.dragBlocked=true
+            return true
+        end
     end
     if not self.noticeText and not self.runtime.blocked and ConfigWindow.input(self,mouse,freshLeft,x,y)then return true end
     if self.searchFocused and (freshLeft or freshRight) then
@@ -1095,19 +1294,29 @@ function U:input(mouse)
         if not consumed and (self.context or self.finalContext) then self.context=nil;self.finalContext=nil;consumed=true end
     end
     if self.runtime.blocked then self.lastMouse=mouse;self.lastCell=nil;return true end
-    if self.searchFocused then self.lastMouse=mouse;return true end
+    if self.searchFocused or consumed and freshRight then self.lastMouse=mouse;return true end
     local gx,gy=self:pointerCell()
     if self.phase=='after' and mouse&3~=0 then
         consumed=true
         if freshRight and gx then
             local entry=FinalView.at(self.finalPlan,gx,gy)
-            self.finalContext=entry and {entry=entry,px=x,py=y} or nil
+            if not entry and self.finalPlan and self.finalPlan.objects then entry=self.finalPlan.objects[gx..':'..gy] end
+            self.finalContext=entry and {entry=entry,px=x,py=y,x=gx,y=gy} or nil
         end
     end
     if self.phase=='prepare' and not self.runtime.blocked and mouse&2~=0 and gx then
         consumed=true;local u=self:unitAt(gx,gy)
-        if freshRight and u and not self.moving then
-            if self.selectedItem then self.pending={equip=true,model_id=u.id}
+        if u and u.scenery and self.team~=3 and self.selected~=nil and not self.selectedItem and not self.editWindow and
+            FieldObjects.neutralStanding(self.catalog.byId[u.monster]) then u=nil end
+        local feature,role
+        if freshRight and not u and not self.moving and not self.selectedItem and self.native and self.runtime.fieldObjectAt then
+            feature,role=self.runtime:fieldObjectAt(gx,gy)
+        end
+        if feature and (role=='structure' or self.selected==nil) then
+            self.context={feature=feature,role=role,x=gx,y=gy,px=x,py=y};self.dragBlocked=true
+        elseif freshRight and u and not self.moving then
+            if u.scenery and (self.selectedItem or self.editWindow) then self.message='Scenery has no army equipment or configuration.'
+            elseif self.selectedItem then self.pending={equip=true,model_id=u.id}
             elseif self.editWindow then self.pending={openConfig=u.id}
             else self.context={unit=u,px=x,py=y};self.diag:record('context',{name=u.name,id=u.id})end
             self.dragBlocked=true
@@ -1174,6 +1383,7 @@ function U:viewType(id)
 end
 function U:inspect(u)
     self:setSearchFocus(false);self.context=nil;self.moving=nil;self.pending=nil
+    if u.scenery then return self:inspectFeature(u.x,u.y,false) end
     if type(self.runtime.inspect)~='function' then self:notice('Native instance Inspect requires the updated experimental API. No template card was substituted.');return false end
     self.inNativeMenu=true
     self.api.set('mouseButtons',(self.api.get('mouseButtons') or 0)&4)
@@ -1191,8 +1401,45 @@ function U:inspect(u)
     self.message=tostring(candidate);self:notice(self.message)
     return false
 end
+function U:inspectFeature(x,y,final)
+    self:setSearchFocus(false);self.context=nil;self.finalContext=nil;self.moving=nil;self.pending=nil
+    if type(self.api.inspectTestFieldFeature)~='function' then
+        self:notice('Native scenery and structure Inspect requires a compatible CoE5SE build.',false);return false
+    end
+    local before
+    if not final then
+        local good;good,before=self.runtime:ready(self.scenario)
+        if not good then self:notice(before);return false end
+    end
+    self.inNativeMenu=true
+    local called,ok,reason=pcall(self.api.inspectTestFieldFeature,x,y,final==true)
+    self.inNativeMenu=false;self.releaseBarrier=true;self.dragBlocked=true;self.lastCell=nil;self.dragOrigin=nil
+    if not called or reason=='feature_inspect_changed_unverified' then
+        local _,message=self.runtime:quarantine(self.snapshot or self.scenario,'feature_inspect_unverified',nil,{x=x,y=y,reason=called and reason or ok})
+        self:notice(message);return false
+    end
+    if not ok then
+        self.diag:record('feature_inspect',{x=x,y=y,final=final and 1 or 0,result='refused',reason=tostring(reason)})
+        local message=final and 'Native Inspect is unavailable because the live feature could not be verified after battle.'
+            or 'The game does not have a verified Inspect card for this battlefield feature.'
+        self:notice(message,false);return false
+    end
+    if before then
+        local accepted,after,detail=self.runtime:check(self.scenario,true,before)
+        if not accepted then
+            local _,message=self.runtime:quarantine(self.scenario,after,nil,detail)
+            self:notice(message);return false
+        end
+        self.runtime:accept(self.scenario,after)
+    end
+    self.diag:record('feature_inspect',{x=x,y=y,final=final and 1 or 0,result='native card; verified unchanged'})
+    self.message='Native feature Inspect closed. The field was verified unchanged.'
+    return true
+end
 function U:inspectFinal()
-    local entry=self.finalContext and self.finalContext.entry
+    local context=self.finalContext
+    local entry=context and context.entry
+    if entry and (entry.role=='scenery' or entry.role=='structure') then return self:inspectFeature(context.x,context.y,true) end
     self.finalContext=nil;self.pending=nil;self:setSearchFocus(false)
     if not entry then return false end
     if not entry.row.inspectable or entry.row.inspectable==0 or type(self.api.inspectTestFieldFinalUnit)~='function' then
@@ -1212,12 +1459,20 @@ function U:inspectFinal()
 end
 function U:save()
     local migrate=self.scenario.legacyState or self.scenario.migrationRequired
-    local name=self:prompt(migrate and 'Save migrated copy'or'Save scenario',migrate and 'Unused name for schema 4 copy; original is preserved:'or'File name (without .ini):')
+    local name=self:prompt(migrate and 'Save migrated copy'or'Save scenario',migrate and 'Unused name for migrated copy; original is preserved:'or'File name (without .ini):')
     if name then
-        if name:lower()=='launcher-context' or name:lower():find('^diagnostics%-') then self:notice('This name is reserved for diagnostics. Choose another scenario name.');return end
-        if migrate then
-            for _,existing in ipairs(self.api.listIni())do
-                if existing:gsub('%.ini$',''):lower()==name:gsub('%.ini$',''):lower()then self:notice('Migration writes a new copy. Choose an unused name; existing scenarios are preserved.');return end
+        if M.reservedDataName(name) then
+            self:notice('This name is reserved for Sandbox records. Choose another scenario name.');return
+        end
+        for _,existing in ipairs(self.api.listIni())do
+            if existing:lower()==name:lower() or (migrate and existing:lower()==name:lower()..'.ini') then
+                if migrate then self:notice('Migration writes a new copy. Choose an unused name; existing scenarios are preserved.');return end
+                local read,previous=pcall(self.api.readIni,existing)
+                if not read or type(previous)~='table' or type(previous.scenario)~='table'
+                    or previous.recovery or previous.repair or M.isNavalScenario(previous) then
+                    self:notice('A protected or unreadable file already uses that name. Choose an unused scenario name.');return
+                end
+                break
             end
         end
         local function exact(a,b)
@@ -1258,20 +1513,22 @@ function U:save()
         if not read then refuse('readback',data,true);return end
         checked,valid,why=pcall(verify,data,payload)
         if not checked or not valid then refuse('readback',checked and why or valid,true);return end
-        self.scenario.legacyState=false;self.scenario.sourceSchema=4;self.scenario.migrationRequired=false
+        self.scenario.legacyState=false;self.scenario.sourceSchema=payload.scenario.schema;self.scenario.migrationRequired=false
         self.message='Scenario saved: '..name
         self.diag:record('save',{accepted=1,units=#self.scenario.units,terrain=self.scenario.terrain,target_state='verified exact configuration'})
     end
 end
 function U:load()
-    local files,naval={},{};local rows={{0,'Choose a saved scenario'}}
+    local files,availability={},{};local rows={{0,'Choose a saved scenario'}}
     for _,name in ipairs(self.api.listIni()) do
         local data=self.api.readIni(name)
         if data and (data.scenario or M.isNavalScenario(data))then
-            files[#files+1]=name;naval[#files]=M.isNavalScenario(data)
+            files[#files+1]=name
+            availability[#files]=M.isNavalScenario(data) and ' (naval unavailable)'
+                or data.scenario and tonumber(data.scenario.schema)==5 and ' (legacy Neutral actors)' or ''
         end
     end
-    for i,name in ipairs(files) do rows[#rows+1]={i<999 and i or i+1,name..(naval[i] and ' (naval unavailable)' or '')} end
+    for i,name in ipairs(files) do rows[#rows+1]={i<999 and i or i+1,name..availability[i]} end
     rows[#rows+1]={999,'Cancel'}
     local id=self:menu('Load scenario',rows)
     if id==999 then return end
@@ -1283,6 +1540,10 @@ function U:load()
         self.message='Could not load scenario: '..Catalog.textLimit(tostring(why),140,'...')..'. Current setup kept.';self:notice(self.message);return
     end
     if candidate.terrain~=0 and not self.catalog.testFieldTerrains[candidate.terrain] then self:notice('This scenario needs the matching terrain API for '..(M.terrainNames[candidate.terrain] or 'this map')..'. Current setup kept.');return end
+    if M.count(candidate,3)>0 then
+        local problem=M.neutralPlacementProblem(self.api,candidate.terrain)
+        if problem then self:notice(problem);return end
+    end
     self.runtime.sourceScenarioFile=files[id]
     if self.runtime.open then
         local ok;ok,why=self.runtime:build(candidate)
@@ -1302,6 +1563,7 @@ function U:load()
     self.diag:record('load',{units=#candidate.units,terrain=candidate.terrain})
 end
 function U:edit(u)
+    if u.scenery then return self:inspect(u) end
     return ConfigWindow.open(self,u)
 end
 function U:spellEditor(u,path)
@@ -1323,7 +1585,7 @@ function U:itemBrowser(u)
     local search,slot,page,slotIndex='',nil,1,0
     while true do
         local rows={{0,'Inventory: '..(#u.items==0 and '(none)' or table.concat(u.items,', '))},
-            {0,'Equipment editing needs the newer experimental Extender; current inventory is read only.'},
+            {0,'Equipment editing needs a compatible CoE5SE build; current inventory is read only.'},
             {1,'Search: '..search},{2,'Slot type: '..(slot==nil and 'All' or tostring(slot))}}
         local filtered={};for _,item in ipairs(self.catalog.items) do if item.name:lower():find(search:lower(),1,true) and (slot==nil or slot==item.slot) then filtered[#filtered+1]=item end end
         page=math.max(1,math.min(page,math.max(1,math.ceil(#filtered/5))))
@@ -1387,7 +1649,8 @@ function U:results()
     local r=self.report.result;if not r then return 'controls' end
     self:setSearchFocus(false)
     self.inNativeMenu=true
-    local winner=r.summary.winner==0 and 'Team A' or r.summary.winner==24 and 'Team B' or 'None / unavailable'
+    local winner=r.summary.winner==0 and 'Team A' or r.summary.winner==24 and 'Team B'
+        or r.summary.winner==31 and r.neutral and r.neutral.start>0 and 'Neutral' or 'None / unavailable'
     local page=1;local types={};for _,row in pairs(r.types) do types[#types+1]=row end
     for _,u in ipairs(self.report.scenario and self.report.scenario.units or{})do if u.nativeName and u.nativeName~=''then
         local actor=r['unit'..u.id];if actor then types[#types+1]={team=u.team,name=u.nativeName,modelId=u.id,individual=true,survivors=actor.alive}end
@@ -1397,13 +1660,16 @@ function U:results()
         local rows={{0,'Winner: '..winner..' | final round '..r.summary.final_round..' | elapsed wall '..math.floor(r.summary.elapsed_wall_ms/1000)..' s'},
             {0,('A: %d start / %d lost / %d survive; B: %d / %d / %d'):format(r.teamA.start,r.teamA.losses,r.teamA.survivors,r.teamB.start,r.teamB.losses,r.teamB.survivors)}}
         local unknownA,unknownB=r.teamA.unverified or 0,r.teamB.unverified or 0
+        if r.neutral and r.neutral.start>0 then
+            rows[#rows+1]={0,('Neutral: %d start / %d lost / %d survive / %d unverified'):format(r.neutral.start,r.neutral.losses,r.neutral.survivors,r.neutral.unverified)}
+        end
         if unknownA+unknownB>0 then rows[#rows+1]={0,('Unverified outcomes | A: %d / B: %d'):format(unknownA,unknownB)} end
         for i=(page-1)*5+1,math.min(page*5,#types) do
             local t=types[i]
             local result=t.survivors==1 and 'survived' or t.survivors==0 and 'lost' or 'unverified'
             local extra=(t.unverified or 0)>0 and (' / %d unverified'):format(t.unverified) or ''
-            rows[#rows+1]={0,t.individual and ('Individual %s #%d: %s | %s'):format(t.team==1 and 'A' or 'B',t.modelId,t.name,result)
-                or ('Team %d %s: %d lost / %d survive'):format(t.team,t.name,t.losses,t.survivors)..extra}
+            rows[#rows+1]={0,t.individual and ('%s #%d: %s | %s'):format(M.teamLabels[t.team],t.modelId,t.name,result)
+                or ('%s %s: %d lost / %d survive'):format(M.teamLabels[t.team],t.name,t.losses,t.survivors)..extra}
         end
         rows[#rows+1]={0,'Damage attribution partial; complete cast log unavailable. Export includes native kills.'}
         rows[#rows+1]={0,r.summary.final_snapshot_source and ('Final view: '..r.summary.final_snapshot_source..'; units/cells complete: '..tostring(r.summary.final_snapshot_complete)..'; effects excluded.') or 'Final capture unavailable; aftermath observations alone are partial.'}
@@ -1417,7 +1683,13 @@ function U:results()
             self.inNativeMenu=false
             return id==999 and 'restore' or id==4 and 'rematch' or id==5 and 'controls' or 'main'
         elseif id==1 then page=math.max(1,page-1) elseif id==2 then page=math.min(math.max(1,math.ceil(#types/5)),page+1)
-        elseif id==3 then local name=self:prompt('Export report','File name:');if name then self:notice(self.report:export(name) and 'Report exported as '..name..'.ini' or 'Export refused') end end
+        elseif id==3 then
+            local name=self:prompt('Export report','Unused file name (without .ini):')
+            if name then
+                local saved,why=self.report:export(name)
+                self:notice(saved and 'Report exported as '..name..'.ini' or ('Export refused. '..tostring(why)))
+            end
+        end
     end
 end
 function U:reset(rematch)
@@ -1447,31 +1719,84 @@ function U:postBattle(action)
         else return self.runtime.open end
     end
 end
+function U:placeFormation(x,y)
+    local monster,team,template=self.selected,self.team,self.copyTemplate
+    if monster==nil then self.message='Select a unit before placing.';return true end
+    if team==3 and not FieldObjects.neutralBuilding(self.catalog.byId[monster]) then
+        self.message='Select a verified building element before placing in Neutral.';return true
+    end
+    local footprint=self:placementFootprint()
+    local anchors,why=self:placementAnchors(x,y,footprint)
+    if not anchors then self.message=why;return true end
+
+    local runtime=self.runtime
+    local generation,expected=runtime.generation,self.scenario
+    local skipped,placed,lastReason,waterWarning=0,0,nil,nil
+    local cooperative=#anchors>1 and type(self.api.drawTestField)=='function'
+    self.formationBusy=cooperative
+    local completed,err=xpcall(function()
+        for index,cell in ipairs(anchors) do
+            if cooperative and index>1 then
+                -- Keep each verified native edit within a refreshed frame.
+                self.message='Placing formation: '..(index-1)..' / '..#anchors..' checked'
+                self.api.drawTestField()
+                if self.runtime~=runtime or not runtime.open or runtime.generation~=generation or self.scenario~=expected or runtime.blocked then
+                    lastReason='Formation stopped because the battlefield changed or editing is locked.'
+                    break
+                end
+            end
+            local ok,candidate=runtime:add(expected,monster,team,cell.x,cell.y,template)
+            if ok then
+                self.scenario=candidate;expected=candidate;placed=placed+1
+                waterWarning=waterWarning or runtime.lastPlacementWarning
+            else
+                skipped=skipped+1;lastReason=candidate
+            end
+            if runtime.blocked then self.context=nil;self.moving=nil;self.copyTemplate=nil;break end
+            if not runtime.open then break end
+        end
+    end,tostring)
+    self.formationBusy=nil
+    if not completed then error(err,0)end
+    local remaining=#anchors-placed-skipped
+    self.message='Placed '..placed..'; skipped '..skipped
+        ..(remaining>0 and ('; not attempted '..remaining) or '')
+        ..(lastReason and '. '..lastReason or '')..(waterWarning and '. '..waterWarning or '')
+    self.diag:record('formation',{kind=kinds[self.formation],count=self.n,placed=placed,skipped=skipped,not_attempted=remaining,team=team,
+        footprint_width=footprint and footprint.width or 'unknown',footprint_height=footprint and footprint.height or 'unknown',
+        footprint_source=footprint and footprint.source or 'unavailable',spacing='footprint-positive-xy'})
+    if not self.runtime.open then self:notice(self.message);return false end
+    return true
+end
+function U:deleteUnit(unit)
+    local ok,candidate=self.runtime:remove(self.scenario,unit)
+    if not ok then
+        self.deleteStroke=nil
+        self.message=candidate
+        self:notice(candidate)
+        return false
+    end
+    self.scenario=candidate
+    self.message='Unit removed; other units kept'
+    return true
+end
 function U:dispatch(action)
-    if self.clearBusy then self.pending=nil;return self.runtime.open end
+    if self.clearBusy or self.formationBusy then self.pending=nil;return self.runtime.open end
     if action~='search' and action~='searchclear' then self:setSearchFocus(false) end
     if self.runtime.blocked and action~='diagnostics' and action~='recover' and action~='back' and action~='noticeclose' and action~='spellrepair' then
         self.message='Editing locked; export diagnostics and reopen the preserved setup.';self.pending=nil;return true
     end
     if type(action)=='table' then
-        if action.equip then local u=ConfigWindow.find(self,action.model_id);if u then ConfigWindow.give(self,u)end
+        if action.deleteUnits then
+            for _,id in ipairs(action.deleteUnits) do
+                local unit=ConfigWindow.find(self,id)
+                if unit and not unit.scenery and not self:deleteUnit(unit) then break end
+            end
+        elseif action.equip then local u=ConfigWindow.find(self,action.model_id);if u then ConfigWindow.give(self,u)end
         elseif action.openConfig then local u=ConfigWindow.find(self,action.openConfig);if u then ConfigWindow.open(self,u)end
         elseif action.move then local ok,why=self.runtime:move(self.moving,action.x,action.y);self.message=ok and(self.runtime.lastPlacementWarning or 'Moved; configuration preserved')or why;if ok then self.moving=nil;self.dragBlocked=true end
         elseif action.place then
-            if self.selected==nil then self.message='Select a unit before placing.';return true end
-            local skipped,placed,lastReason,waterWarning=0,0,nil,nil
-            local footprint=self:placementFootprint();local anchors,why=self:placementAnchors(action.x,action.y,footprint)
-            if not anchors then self.message=why;return true end
-            for _,c in ipairs(anchors) do
-                local ok,candidate=self.runtime:add(self.scenario,self.selected,self.team,c.x,c.y,self.copyTemplate)
-                if ok then self.scenario=candidate;placed=placed+1;waterWarning=waterWarning or self.runtime.lastPlacementWarning else skipped=skipped+1;lastReason=candidate end
-                if self.runtime.blocked then self.context=nil;self.moving=nil;self.copyTemplate=nil;break end
-                if not self.runtime.open then self:notice(candidate);return false end
-            end
-            self.message='Placed '..placed..'; skipped '..skipped..(lastReason and '. '..lastReason or '')..(waterWarning and '. '..waterWarning or '')
-            self.diag:record('formation',{kind=kinds[self.formation],count=self.n,placed=placed,skipped=skipped,team=self.team,
-                footprint_width=footprint and footprint.width or 'unknown',footprint_height=footprint and footprint.height or 'unknown',
-                footprint_source=footprint and footprint.source or 'unavailable',spacing='footprint-positive-xy'})
+            return self:placeFormation(action.x,action.y)
         end;return true
     end
     if ConfigWindow.dispatch(self,action)then return true end
@@ -1488,26 +1813,55 @@ function U:dispatch(action)
     elseif prefix=='view'then self:viewType(tonumber(value))
     elseif prefix=='unit' then
         local m=self.filtered[tonumber(value)]
+        if m and self.team==3 and not FieldObjects.neutralBuilding(m) then
+            self.message='This type is unavailable in Neutral building mode.';return true
+        end
         if m then
             local deselect=self.selected==m.id
             self.selected=not deselect and m.id or nil;self.selectedItem=nil;self.equipDialog=nil;self.copyTemplate=nil;self.moving=nil;self.context=nil
             self.releaseBarrier=true;self.dragBlocked=true
-            self.message=deselect and 'Unit selection cleared. Right-click a unit for its context menu.' or 'Selected '..m.name..' as an army unit; click Select again to clear.'
+            self.message=deselect and 'Unit selection cleared. Right-click a unit for its context menu.'
+                or 'Selected '..m.name..' for '..M.teamLabels[self.team]..'; click Select again to clear.'
             self.diag:record(deselect and 'deselect' or 'select',{monster=m.id,name=m.name})
         end
     elseif prefix=='context' then
-        local u=self.context.unit;self.context=nil
+        local context=self.context;self.context=nil
+        if context.feature then
+            if value=='Inspect' and context.role=='unverified' then
+                self:notice('The game did not provide a verifiable identity for this battlefield object.',false)
+            elseif value=='Inspect' then self:inspectFeature(context.x,context.y,false) end
+            return true
+        end
+        local u=context.unit
         if value=='Inspect' then self:inspect(u) elseif value=='Edit' then self:edit(u) elseif value=='Move' then self.moving=u;self.message='Right-click target; Back cancels move'
-        elseif value=='Copy' then self.selected=u.monster;self.copyTemplate=M.copy(u);self.team=u.team;self.message='Copy selected; right-click a free cell to preserve this configuration';self.diag:record('copy_selected',{id=u.id,name=u.name})
-        elseif value=='Delete' then
-            local ok,candidate=self.runtime:remove(self.scenario,u)
-            if ok then self.scenario=candidate;self.message='Unit removed; other units kept' else self.message=candidate;self:notice(candidate) end
+        elseif value=='Copy' then
+            if u.team==3 and not FieldObjects.neutralBuilding(self.catalog.byId[u.monster]) then
+                self.message='Only verified Neutral building elements can be copied.';return true
+            end
+            self.selected=u.monster;self.copyTemplate=M.copy(u);self.team=u.team;self:refresh()
+            self.message='Copy selected; right-click a free cell';self.diag:record('copy_selected',{id=u.id,name=u.name})
+        elseif value=='Delete' then self:deleteUnit(u)
         end
     elseif action=='back' then if self.moving then self.moving=nil;self.message='Move cancelled; original cell retained' elseif self.context then self.context=nil else return false end
     elseif action=='main' then self.exitToMain=true;return false
-    elseif action=='team1' then self.team=1;self.diag:record('team',{team=1}) elseif action=='team2' then self.team=2;self.diag:record('team',{team=2})
+    elseif action=='team1' or action=='team2' or action=='team3' then
+        local team=tonumber(action:sub(-1))
+        if team==3 then
+            local problem=M.neutralPlacementProblem(self.api,self.scenario.terrain)
+            if problem then self:notice(problem);return true end
+            self.message='Neutral places verified building elements. Fixed siege gates keep their native sides.'
+        end
+        if self.copyTemplate and self.copyTemplate.team~=team and (self.copyTemplate.team==3 or team==3) then self.copyTemplate=nil end
+        self.team=team
+        if team==3 then self.catalogTab='units';self.selectedItem=nil;self.equipDialog=nil end
+        self.selected=nil;self.page=1;self:refresh()
+        self.diag:record('team',{team=team})
     elseif action=='native' then
         if type(self.api.battleView)=='function' then self.native=not self.native else self:notice('Direct battle-map interaction requires the experimental editor API. The labelled planning grid remains available.') end
+    elseif action=='ctrldelete' then
+        self.ctrlDeleteEnabled=not self.ctrlDeleteEnabled
+        self.deleteStroke=nil;self.releaseBarrier=true
+        self.message=self.ctrlDeleteEnabled and 'Ctrl + right-click or drag deletes units. Scenery stays.' or 'Ctrl right-click deletion is off.'
     elseif action=='noticeclose' then self.noticeText=nil;self.dragBlocked=true
     elseif action=='diagnostics' then self:exportDiagnostics()
     elseif action=='spellrepair' then self:repairSpells()
@@ -1540,6 +1894,9 @@ function U:dispatch(action)
     elseif action=='clearitems' then self:clearAllHeldItems()
     elseif action=='filter' then
         if self.catalogTab=='items'then self.itemSlotIndex=((self.itemSlotIndex or 0)+1)%(#self.catalog.itemSlots+1);self.itemSlot=self.catalog.itemSlots[self.itemSlotIndex];self.itemPage=1;ConfigWindow.items(self)
+        elseif self.team==3 then
+            self.neutralFilter=self.neutralFilter%#neutralFilters+1
+            self.selected=nil;self.copyTemplate=nil;self.page=1;self:refresh()
         else self.category=self.category%#categories+1;self.page=1;self:refresh()end
     elseif action=='prev' or action=='next' then
         if self.catalogTab=='items'then self.itemPage=(self.itemPage or 1)+(action=='next'and 1 or -1);ConfigWindow.items(self)
@@ -1563,6 +1920,8 @@ function U:prepare(nativeDeployment,reuseVerified)
     if not ok then self:notice(why);return end
     self.scenario=candidate
     self.phase='prepare';self.native=type(self.api.battleView)=='function';self.pending=nil;self.lastMouse=0;self.escapeHeld=false
+    self.deletePress=nil;self.deleteStroke=nil
+    if self.catalog and self.catalog.monsters then self:refresh() end
     self:prepareLog()
     self.lastWheel=nil
     self.diag:record('open_field',{terrain=self.scenario.terrain,native=self.native and 1 or 0,units=#self.scenario.units})

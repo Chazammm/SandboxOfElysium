@@ -62,6 +62,96 @@ test('preview draws every native-footprint cell and exposes partial validity',fu
     plan=u:placementPreview(29,19);assert(plan.outside==8 and #plan.cells==9)
     assert(plan.cells[9].screenX==315 and plan.cells[9].screenY==215,'outside native projection was lost')
 end)
+test('neutral Move retains its role and only the neutral preview blocks the native object layer',function()
+    local u,state=fixture()
+    u.runtime.objects['6:6']=12
+    state.cellStatus=function(x,y,status)
+        return x==6 and y==6 and 'unknown' or status
+    end
+    local ordinary=u:placementPreview(6,6)
+    assert(not ordinary.neutral and ordinary.unknown==1 and ordinary.blocked==0)
+    u.catalog.byId[1404]={id=1404,name='Stone Wall',scenery=true};state.width,state.height=1,1
+    u.moving={id=4,monster=1404,team=3,scenery=true};u.runtime.live[4]=101
+    local neutral=u:placementPreview(6,6)
+    assert(neutral.neutral and neutral.blocked==1 and neutral.clear==0)
+    assert(neutral.cells[1].status=='terrain' and neutral.cells[1].reason=='neutral_object_layer_occupied')
+end)
+test('neutral planning grid renders sprite without a colored background',function()
+    local u,_,api=fixture()
+    local neutral=M.add(u.scenario,1404,'Stone Wall',3,3,3)
+    neutral.scenery=true
+    local row={kind='terrain',owner=31,anchorLayer='object',creationSource='owned_scenery_placement',
+        provenanceVerified=true,width=1,height=1}
+    u.runtime.live[neutral.id]=4;u.runtime.verified={rows={[4]=row}}
+    u.native=false;u.filtered={};u.selected=nil
+    local back,sprite
+    api.ui={drawText=function()end,drawRect=function(x,y,w,h,r,g,b)
+        if r==g and r==b and w>40 and w<60 and h>40 and h<60 then
+            assert(not sprite,'neutral background painted over the sprite')
+            back={x,y,w,h}
+        end
+    end,drawMonsterSprite=function(...)sprite={...}end}
+    for _,team in ipairs({1,3}) do
+        u.team=team;back,sprite=nil,nil;u:draw()
+        local g=u.grid
+        assert(not back and sprite and #sprite==5 and sprite[5]==1404)
+        assert(sprite[3]==g.cell and sprite[4]==g.cell)
+    end
+end)
+test('neutral preview clips its gray fill and leaves occupied and moving sprites uncovered',function()
+    local u,state,api=fixture()
+    u.team=3;u.filtered={};state.width,state.height=1,1
+    u.selected=1404;u.catalog.byId[1404]={id=1404,name='Stone Wall',scenery=true}
+    api.battleView=function()return {cellSize=10} end
+    local draws={}
+    api.ui={drawRect=function(...)draws[#draws+1]={...} end,drawText=function()end}
+    local function preview(blocked,moving,clipped)
+        draws={};u.runtime.objects['6:6']=blocked and 12 or nil
+        state.cameraX=clipped and 427 or 0
+        u.moving=moving and {id=4,monster=1404,team=3,x=6,y=6} or nil
+        u:draw()
+        local gray,red,fillsCenter=false,false,false
+        local x0=60+state.cameraX
+        for _,d in ipairs(draws) do
+            local x,y,w,h,r,g,b=table.unpack(d)
+            if x>=x0 and y>=60 and x+w<=x0+10 and y+h<=70 then
+                gray=gray or r==g and g==b
+                red=red or r>g and r>b
+                fillsCenter=fillsCenter or (x<=x0+5 and y<=65 and x+w>x0+5 and y+h>65)
+                if clipped then assert(x+w<=490) end
+            end
+        end
+        assert(u.previewInfo.neutral and not gray and red==blocked)
+        assert(not fillsCenter)
+    end
+    preview(false,false,false);preview(true,false,false);preview(false,true,false);preview(false,false,true)
+end)
+test('final view renders neutral sprite without a colored background',function()
+    local u,_,api=fixture()
+    local row={unit=13,monster=206,hp=7,alive=true,owner=31,kind='actor',width=2,height=1,
+        anchorCount=1,anchors={{x=4,y=5}},anchorLayer='unit',occupied={{x=4,y=5},{x=5,y=5}},
+        creationSource='owned_neutral_actor',provenanceVerified=true}
+    u.phase='after'
+    u.finalPlan=require('sandbox.final_view').prepare({width=32,height=20,complete=true,
+        classificationVersion=1,source='post_aftermath_before_upkeep',units={row}})
+    local entry=assert(u.finalPlan.byUnit[13])
+    api.battleView=function()return {cellSize=20} end
+    api.battleCellToScreen=function()return 150,150 end
+    local sprite,background
+    api.ui={drawText=function()end,drawMonsterSprite=function(...)sprite={...} end,drawRect=function(x,y,w,h,r,g,b)
+        if x>=140 and x+w<=180 and y>=140 and y+h<=160 then
+            assert(not sprite,'final background was drawn on top of the sprite')
+            background={x,y,w,h,r,g,b}
+        end
+    end}
+    u:draw()
+    assert(sprite and #sprite==5 and sprite[5]==entry.monster)
+    assert(not background)
+    sprite,background=nil,nil;u.finalContext={entry=entry,px=270,py=270};u:draw()
+    assert(not background and sprite)
+    sprite,background=nil,nil;entry.team=1;u:draw()
+    assert(background and sprite)
+end)
 test('missing preflight or footprint stays explicitly unknown without a new unit',function()
     local u,state,api=fixture();api.testFieldPlacementPreflight=nil
     local plan=u:placementPreview(6,6);assert(plan.unknown==9 and plan.partial and #state.adds==0)
@@ -147,6 +237,58 @@ test('existing native interior hit has priority over placement and names the exa
     local called
     u.runtime.inspect=function(_,s,unit)called=unit;assert(u.inNativeMenu and not state.focus);return true,M.copy(s),{mode='read_only',changed=false}end
     u:dispatch('context:Inspect');assert(called==b and not u.inNativeMenu and u.releaseBarrier)
+end)
+test('native scenery and a fixed gate offer read-only Inspect without replacing placement input',function()
+    local u,state,api=fixture()
+    local selected=u.selected
+    u.runtime.fieldObjectAt=function()return {monster=206,owner=31},'scenery' end
+    u:input(2)
+    assert(u.pending and u.pending.place and not u.context)
+    u:input(0);u.pending=nil;u.selected=nil;u:input(2)
+    assert(u.context and u.context.role=='scenery' and not u.pending)
+    u.runtime.ready=function()return true,{state='before'}end
+    u.runtime.check=function(_,s,positions,before)
+        assert(s==u.scenario and positions and before.state=='before')
+        return true,{state='after'}
+    end
+    u.runtime.accept=function(_,s,after)assert(s==u.scenario and after.state=='after')end
+    api.inspectTestFieldFeature=function(x,y,final)
+        assert(u.inNativeMenu and x==state.cellX and y==state.cellY and not final)
+        return true
+    end
+    assert(u:dispatch('context:Inspect') and not u.inNativeMenu and u.releaseBarrier)
+    assert(u.message:find('field was verified unchanged',1,true))
+    u:input(0);u.selected=selected
+    u.runtime.fieldObjectAt=function()return {monster=206,owner=24},'structure'end
+    u:input(2)
+    assert(u.context and u.context.role=='structure' and not u.pending)
+end)
+test('a final scenery card can refuse a removed native feature without opening an army card',function()
+    local u,_,api=fixture()
+    u.phase='after'
+    u.finalContext={x=6,y=6,entry={role='scenery'}}
+    api.inspectTestFieldFeature=function(x,y,final)
+        assert(x==6 and y==6 and final)
+        return nil,'final_feature_changed_or_removed'
+    end
+    api.inspectTestFieldFinalUnit=function()error('ordinary card used for scenery')end
+    u.notice=function(self,text)self.message=text end
+    u.diag.record=function(_,event,fields)
+        assert(event=='feature_inspect' and fields.result=='refused' and fields.reason=='final_feature_changed_or_removed')
+    end
+    assert(not u:inspectFinal() and not u.finalContext)
+    assert(u.message:find('live feature could not be verified after battle',1,true))
+end)
+test('an unverified object gives an explanation without opening a native card',function()
+    local u,state,api=fixture()
+    u.selected=nil
+    u.runtime.objects[state.cellX..':'..state.cellY]=123
+    u.runtime.fieldObjectAt=require('sandbox.runtime').fieldObjectAt
+    api.inspectTestFieldFeature=function()error('card requested for an unverified object')end
+    u.notice=function(self,text)self.message=text end
+    u:input(2)
+    assert(u.context and u.context.role=='unverified' and not u.pending)
+    assert(u:dispatch('context:Inspect') and u.message:find('verifiable identity',1,true))
 end)
 test('Inspect close owns both held tails and failure preserves the model',function()
     local u,state=fixture();local unit=M.add(u.scenario,206,'Seraph',1,4,4);u.runtime.live[unit.id]=101
@@ -239,5 +381,38 @@ test('diagnostics label cached map hover and reject another field generation',fu
     u.previewInfo=nil;u:exportDiagnostics();assert(context.preview_snapshot=='last map hover')
     u.runtime.generation=8;u:exportDiagnostics()
     assert(context.preview_snapshot=='unknown' and context.preview_width=='unknown' and context.preview_anchor_x=='unknown' and context.preview_partial==1)
+end)
+test('formation refreshes between verified edits, ignores intervening input and retains the drag',function()
+    local u,state,api=fixture();u.formation=2;u.n=3
+    local frames=0
+    u.lastCell='1:5';u.dragVisited={['1:5']=true};u.lastMouse=2
+    api.drawTestField=function()
+        frames=frames+1
+        assert(u.formationBusy and #state.adds==frames)
+        assert(u:input(2) and not u.pending)
+        assert(u:dispatch('number') and u.n==3)
+    end
+    assert(u:dispatch({place=true,x=1,y=5}))
+    assert(frames==2 and #state.adds==3 and not u.formationBusy)
+    assert(u.lastCell=='1:5' and u.lastMouse==2 and u.dragVisited['1:5'])
+    assert(u.message:find('Placed 3; skipped 0',1,true))
+end)
+test('formation stops before placing into a replacement field and reports unattempted slots',function()
+    local u,state,api=fixture();u.formation=2;u.n=3;u.runtime.generation=7
+    api.drawTestField=function()u.runtime.generation=8 end
+    assert(u:dispatch({place=true,x=1,y=5}))
+    assert(#state.adds==1 and not u.formationBusy)
+    assert(u.message:find('Placed 1; skipped 0; not attempted 2',1,true))
+end)
+test('a drag restarted while a formation is placing waits for a new release',function()
+    local u,state,api=fixture();u.formation=2;u.n=3
+    u.lastMouse=2;u.dragVisited={['1:5']=true}
+    api.drawTestField=function()
+        assert(u:input(0) and u.dragVisited==nil)
+        assert(u:input(2) and u.dragBlocked and not u.pending)
+    end
+    assert(u:dispatch({place=true,x=1,y=5}))
+    assert(#state.adds==3 and u.dragBlocked and not u.pending)
+    u:input(0);assert(not u.dragBlocked)
 end)
 print(count..' offline preview/Inspect/repair checks passed; native footprint, card and spells require real-game verification')

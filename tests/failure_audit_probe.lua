@@ -31,7 +31,7 @@ api.wrap('MAIN_MENU_WAIT',function(next,...)
   active=R.new(api,c,D.new(api));assert(active:build(s))
   local terrains=api.testFieldTerrains;api.testFieldTerrains=function()return{}end
   accepted,message=active:build(M.copy(s));api.testFieldTerrains=terrains
-  assert(not accepted and message:find('matching experimental terrain API')and active:ready(s))
+  assert(not accepted and message:find('CoE5SE terrain API')and active:ready(s))
   out.capability={status='PASS',fault='Injected empty advertised native terrain list',plain_fallback_refused=1,current_field_kept=1}
   assert(active:close());active=nil
  end,tostring)

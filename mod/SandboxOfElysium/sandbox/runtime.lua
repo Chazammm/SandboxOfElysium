@@ -5,11 +5,11 @@ local Condition=require('sandbox.condition')
 local Names=require('sandbox.names')
 local Deployment=require('sandbox.deployment')
 local FieldObjects=require('sandbox.battlefield_objects')
+local Catalog=require('sandbox.catalog')
 local R={}; R.__index=R
-local function same(a,b)
-    if #a~=#b then return false end
-    local x,y=M.copy(a),M.copy(b); table.sort(x);table.sort(y)
-    for i,v in ipairs(x) do if y[i]~=v then return false end end; return true
+local configurationRequired='Exact saved spells and equipment require the CoE5SE configuration API. Current setup kept.'
+local function hasSavedConfiguration(unit)
+    return unit.baseline~=nil or unit.equipment~=nil or unit.schools~=nil
 end
 function R.new(api,catalog,diagnostics)
     return setmetatable({api=api,catalog=catalog,diag=diagnostics,live={},objects={},open=false},R)
@@ -52,7 +52,7 @@ function R:setMultipleUnique(s,enabled)
     if type(enabled)~='boolean'then return false,'Unique policy must be On or Off.',{rollbackVerified=true}end
     local caps=type(self.api.testFieldEditorCapabilities)=='function'and self.api.testFieldEditorCapabilities()or{}
     if caps.multipleUniquePolicy~=1 or type(self.api.setTestFieldMultipleUnique)~='function'then
-        return false,'Changing unique policy without rebuilding needs the updated experimental Extender. Field kept.',{rollbackVerified=true}
+        return false,'Changing unique policy without rebuilding needs a compatible CoE5SE build. Field kept.',{rollbackVerified=true}
     end
     if self.blocked or self.cleanupFailed then return false,'Editing is locked; the preserved setup was kept.',{rollbackVerified=false}end
     if not self.open then
@@ -79,7 +79,7 @@ function R:setMultipleUnique(s,enabled)
 end
 function R:clearHeldItems(s,u,expected)
     local caps=type(self.api.testFieldEditorCapabilities)=='function'and self.api.testFieldEditorCapabilities()or{}
-    if caps.clearHeldItems~=1 then return false,'Atomic held-item clearing needs the updated experimental Extender.',{rollbackVerified=true}end
+    if caps.clearHeldItems~=1 then return false,'Atomic held-item clearing needs a compatible CoE5SE build.',{rollbackVerified=true}end
     local healthy,why=self:ready(s);if not healthy then return false,why,{rollbackVerified=not self.blocked}end
     local unit=self.live[u.id];local state;state,why=Loadout.read(self,unit)
     if not state then return false,why,{rollbackVerified=true}end
@@ -112,60 +112,24 @@ function R:spellList(unit,key,max)
         local info=self.api.spellInfo(id); if info then t[#t+1]=id..':'..info.name end
     end; return t
 end
-function R:configureNative(u,unit)
-    if Loadout.available(self.api) then return Loadout.configure(self,u,unit,true) end
-    if u.equipment or u.schools then return false,'This scenario requires the newer experimental equipment/base-school API. Saved setup kept.' end
-    local known=self:spellList(unit,'unitKnownSpell',59)
-    if not u.baseline then
-        u.baseline={known=known}; u.items=self:inventory(unit); u.spells=self:spellList(unit,'unitMemorizedSpell',29)
-        self:observeSpellSelection(u,unit)
-    else
-        self.lastConfig={name=u.name,monster=u.monster,unit=unit,saved_known=table.concat(u.baseline.known,'|'),actual_known=table.concat(known,'|'),saved_memorized=table.concat(u.spells,'|'),actual_memorized=table.concat(self:spellList(unit,'unitMemorizedSpell',29),'|')}
-        for _,name in ipairs(u.items) do if not self.catalog.itemNames[name] then return false,'Missing or ambiguous item: '..name end end
-        for _,name in ipairs(u.spells) do if not self.catalog.spellKeys[name] then return false,'Missing or changed spell: '..name end end
-        -- Never silently replace existing intrinsic/random inventory on restoration.
-        local current=self:inventory(unit)
-        if not same(current,u.items) then
-            for _,name in ipairs(current) do self.api.takeItem(unit,name) end
-            for _,name in ipairs(u.items) do self.api.giveItem(unit,name) end
-            if not same(self:inventory(unit),u.items) then return false,'Equipment restoration refused by game: '..u.name end
-        end
-        if type(self.api.setTestFieldSpells)=='function' then
-            local state={known={},memorized={}}
-            for _,key in ipairs(u.baseline.known) do
-                if not self.catalog.spellKeys[key] then return false,'Missing or changed known spell: '..key end
-                state.known[#state.known+1]=self.catalog.spellKeys[key]
-            end
-            for _,key in ipairs(u.spells) do state.memorized[#state.memorized+1]=self.catalog.spellKeys[key] end
-            local accepted,why,detail=self.api.setTestFieldSpells(unit,state)
-            self:observeSpellSelection(u,unit,accepted and nil or why,detail)
-            if not accepted then return false,'Exact spell restoration refused for '..u.name..': '..tostring(why) end
-            if table.concat(self:spellList(unit,'unitKnownSpell',59),'|')~=table.concat(u.baseline.known,'|') or
-                table.concat(self:spellList(unit,'unitMemorizedSpell',29),'|')~=table.concat(u.spells,'|') then return false,'Exact spell readback failed for '..u.name end
-            return true
-        end
-        if not same(known,u.baseline.known) then return false,'Native starting spells changed for '..u.name..'; exact restoration unavailable' end
-        for _,name in ipairs(self:spellList(unit,'unitMemorizedSpell',29)) do
-            if not self.catalog.spellKeys[name] then return false,'Missing or changed spell: '..name end
-            self.api.unmemorizeSpell(unit,self.catalog.spellKeys[name])
-        end
-        for _,name in ipairs(u.spells) do
-            local found=false; for _,k in ipairs(known) do if name==k then found=true end end
-            if not found then return false,'Spell is no longer known: '..name end
-            self.api.memorizeSpell(unit,self.catalog.spellKeys[name])
-        end
-        if not same(self:spellList(unit,'unitMemorizedSpell',29),u.spells) then return false,'Spell memorization rejected: '..u.name end
-    end
+function R:configureNative(u,unit,recreated)
+    if Loadout.available(self.api) then return Loadout.configure(self,u,unit,true,recreated and {recreated=true}) end
+    if hasSavedConfiguration(u) then return false,configurationRequired end
+    -- An unconfigured new actor only needs readback in a legacy field.
+    u.baseline={known=self:spellList(unit,'unitKnownSpell',59)}
+    u.items=self:inventory(unit)
+    u.spells=self:spellList(unit,'unitMemorizedSpell',29)
+    self:observeSpellSelection(u,unit)
     return true
 end
-function R:configure(u,unit)
+function R:configure(u,unit,recreated)
     local saved=u.condition and M.copy(u.condition)
     local fresh=not u.baseline
     if saved and not Condition.available(self.api)then return false,'Saved health/injury state requires the release-next API. Existing setup kept.'end
     if fresh and u.omitStartingItems then
         local ok,why,detail=Loadout.omitStartingItems(self,unit);if not ok then return false,why,detail end
     end
-    local ok,why,detail=self:configureNative(u,unit)
+    local ok,why,detail=self:configureNative(u,unit,recreated)
     if not ok then u.condition=saved;return false,why,detail end
     if saved then
         ok,why,detail=Condition.restore(self,u,unit,saved)
@@ -250,7 +214,7 @@ function R:repairSpellSelection(candidate)
 end
 function R:inspect(s,u)
     local ready,previous=self:ready(s);if not ready then return false,previous end
-    if type(self.api.inspectTestFieldUnit)~='function' then return false,'Native Inspect requires the updated experimental extender.' end
+    if type(self.api.inspectTestFieldUnit)~='function' then return false,'Native Inspect requires a compatible CoE5SE build.' end
     local id=self.live[u.id];local ok,detail,nativeResult=self.api.inspectTestFieldUnit(id,{readOnly=true})
     local good,observed,problem=self:check(s,true,previous)
     if not good then return self:quarantine(s,observed,nil,problem) end
@@ -412,24 +376,29 @@ function R:build(s,nativeDeployment)
         if ok and type(ids)=='table' then for _,id in ipairs(ids) do if id==s.terrain then supported=true end end end
     end
     if not M.terrainCapabilityAvailable(self.api,s.terrain)then return reject(M.isWaterTerrain(s.terrain)and 'This water preset requires the matching native water-context API. Current setup kept.'or 'This fortified preset requires the matching structure-provenance API. Current setup kept.')end
-    if not supported and(s.terrain~=0 or terrainAPI)then return reject((M.terrainNames[s.terrain] or 'This terrain')..' requires the matching experimental terrain API. Current field kept.') end
+    if not supported and(s.terrain~=0 or terrainAPI)then return reject((M.terrainNames[s.terrain] or 'This terrain')..' requires the CoE5SE terrain API. Current field kept.') end
     if not s.units then return reject('Scenario unit list is missing. Current field kept.') end
-    if (M.count(s,1)==0 or M.count(s,2)==0) and not self:emptyEditorAvailable() then
-        return reject('Empty teams need the updated experimental empty-editor API. Setup kept; restart with SandboxOfElysium-Testen.bat.')
+    if M.count(s,3)>0 then
+        local problem=M.neutralPlacementProblem(self.api,s.terrain)
+        if problem then return reject(problem) end
     end
+    if (M.count(s,1)==0 or M.count(s,2)==0) and not self:emptyEditorAvailable() then
+        return reject('Empty teams require a compatible CoE5SE build. Setup kept. See the installation guide.')
+    end
+    local configurationAvailable=Loadout.available(self.api)
     for _,u in ipairs(s.units) do
         local waterProblem=M.waterMonsterProblem(self.api,s.terrain,u.monster);if waterProblem then return reject(waterProblem)end
-        if (u.equipment or u.schools) and not Loadout.available(self.api) then return reject('This saved equipment/base-school setup needs the newer experimental Extender. Current army kept.') end
+        if hasSavedConfiguration(u) and not configurationAvailable then return reject(configurationRequired,{model_id=u.id,name=u.name}) end
         local m=self.catalog.byId[u.monster]
         if not m or m.name~=u.name then return reject('Required unit is missing or changed. Current field kept.',{name=u.name,monster=u.monster}) end
-        if u.baseline and #u.baseline.known>0 and type(self.api.setTestFieldSpells)~='function' then
-            local before=self:snapshot(self.current or s)
-            self:failure('rebuild','Missing deterministic spell restoration API',self.current or s,before,'unchanged',{name=u.name})
-            return false,'Keeping saved caster spells requires the experimental editor API. Current army kept; Export Diagnostics for details.'
+        if u.team==3 and not u.scenery then return reject(M.legacyNeutralProblem,{name=u.name,monster=u.monster}) end
+        if u.team==3 then
+            local problem=FieldObjects.savedNeutralProblem(m)
+            if problem then return reject(problem..'. Current field kept.',{name=u.name,monster=u.monster}) end
         end
     end
     if s.allowMultipleUnique and not self:multipleUniqueAvailable() then
-        return reject('Multiple unique units require the updated experimental extender. Setup kept; restart with SandboxOfElysium-Testen.bat.')
+        return reject('Multiple unique units require a compatible CoE5SE build. Setup kept. See the installation guide.')
     end
     local unique={}
     for _,u in ipairs(s.units) do
@@ -438,7 +407,7 @@ function R:build(s,nativeDeployment)
             unique[u.monster]=true
         end
     end
-    if type(self.api.testFieldState)~='function' then return reject('This editor needs the updated experimental integrity API. Restart with SandboxOfElysium-Testen.bat.') end
+    if type(self.api.testFieldState)~='function' then return reject('This editor requires CoE5SE field verification. See the installation guide.') end
     self.spellRepairProblems=nil;self.spellRepairScenario=nil;self.spellRepairSource=nil
     -- The UI may already have changed pending terrain/size options on current.
     -- Rollback must use the last verified native setup, including its dimensions.
@@ -497,14 +466,19 @@ function R:_build(s,nativeDeployment)
         if ok and type(ids)=='table' then for _,id in ipairs(ids) do if id==s.terrain then supported=true end end end
     end
     if not M.terrainCapabilityAvailable(self.api,s.terrain)then return false,M.isWaterTerrain(s.terrain)and 'This water preset requires the matching native water-context API. Current setup kept.'or 'This fortified preset requires the matching structure-provenance API. Current setup kept.'end
-    if not supported and(s.terrain~=0 or terrainAPI)then return false,(M.terrainNames[s.terrain] or 'This terrain')..' requires the matching experimental terrain API. Current field kept.' end
+    if not supported and(s.terrain~=0 or terrainAPI)then return false,(M.terrainNames[s.terrain] or 'This terrain')..' requires the CoE5SE terrain API. Current field kept.' end
     for _,u in ipairs(s.units or{})do local problem=M.waterMonsterProblem(self.api,s.terrain,u.monster);if problem then return false,problem end end
     if type(self.api.openTestField)~='function' or self.open and type(self.api.closeTestField)~='function' then
         return false,'This editor needs compatible owned test-field lifecycle APIs from CoE5SE. Current setup kept.'
     end
     local closed,closeWhy=self:close()
     if not closed then return false,'Previous test field cleanup failed: '..tostring(closeWhy)..'. Scenario preserved; Export Diagnostics and restart the isolated game.' end
-    local a,b={},{}; for _,u in ipairs(s.units) do local list=u.team==1 and a or b; list[#list+1]=u end
+    local a,b,neutral,army={},{},{},{}
+    for _,u in ipairs(s.units) do
+        local list=u.team==1 and a or u.team==2 and b or neutral
+        list[#list+1]=u
+        if u.team~=3 then army[#army+1]=u end
+    end
     local emptyEditor=self:emptyEditorAvailable()
     if (#a==0 or #b==0) and not emptyEditor then return false,'Empty teams require the experimental empty-editor API.' end
     local spec={friends={},enemies={}}
@@ -541,18 +515,32 @@ function R:_build(s,nativeDeployment)
     if nativeDeployment then
         -- Only an explicit editor action adopts the engine's initial deployment.
         -- Saved scenarios, Reset and Rematch continue to require exact cells.
-        for _,u in ipairs(s.units) do
+        for _,u in ipairs(army) do
             local unit=self.live[u.id]
             local x,y=self.api.get('unitBattleX',unit),self.api.get('unitBattleY',unit)
             if not x or not y then local why='Native deployment has no cell for '..u.name;self:captureBuildFailure(s,'native_deployment',why);self:close();return false,why end
             u.x=x;u.y=y
         end
     else
-    local placed,why=self:place(s,true)
-    if not placed then self:captureBuildFailure(s,'exact_deployment',why);self:close();return false,why end
+        local deployment=s
+        if #neutral>0 then
+            deployment={}
+            for key,value in pairs(s) do deployment[key]=value end
+            deployment.units=army
+        end
+        local placed,why=self:place(deployment,true)
+        if not placed then self:captureBuildFailure(s,'exact_deployment',why);self:close();return false,why end
+    end
+    for _,u in ipairs(neutral) do
+        local id,why=self.api.addTestFieldScenery(u.monster,u.x,u.y)
+        if not id then
+            local message='Exact placement of scenery '..u.name..' refused: '..tostring(why)
+            self:captureBuildFailure(s,'scenery_deployment',message);self:close();return false,message
+        end
+        self.live[u.id]=id
     end
     local configurationFailure,failureContext
-    for _,u in ipairs(s.units) do local good,why=self:configure(u,self.live[u.id]);if not good and not configurationFailure then configurationFailure=why;failureContext=M.copy(self.lastConfig) end end
+    for _,u in ipairs(army) do local good,why=self:configure(u,self.live[u.id],true);if not good and not configurationFailure then configurationFailure=why;failureContext=M.copy(self.lastConfig) end end
     if configurationFailure then self.lastConfig=failureContext;self:captureBuildFailure(s,'configuration',configurationFailure);self:close();return false,configurationFailure end
     self:cacheObjects()
     return true
@@ -574,19 +562,20 @@ function R:place(s,initialBuild)
     end
     if not valid then return false,observed end
     -- Parking must avoid every desired FOOTPRINT, not just model anchors.
-    local targets,footprints={},{}
+    local targets,sceneryTargets,footprints={},{},{}
     for _,u in ipairs(s.units)do
         local row=observed.rows[self.live[u.id]];footprints[u.id]={width=row.width,height=row.height}
+        local layer=u.scenery and sceneryTargets or targets
         for x=u.x,u.x+row.width-1 do for y=u.y,u.y+row.height-1 do
             if x<0 or x>=self.width or y<0 or y>=20 then return false,'Saved footprint is outside the native field: '..u.name end
             local key=x..':'..y
-            if targets[key] then return false,'Saved unit footprints overlap: '..targets[key]..' / '..u.id end
-            targets[key]=u.id
+            if layer[key] then return false,'Saved footprints overlap on the same layer: '..layer[key]..' / '..u.id end
+            layer[key]=u.id
         end end
     end
     local used,exact,reason=Deployment.place(self,s,observed)
     if used then return exact,reason end
-    local waiting,parkedOnce={},{};for _,u in ipairs(s.units)do waiting[#waiting+1]=u end
+    local waiting,parkedOnce={},{};for _,u in ipairs(s.units)do if not u.scenery then waiting[#waiting+1]=u end end
     while #waiting>0 do
         local rest={}; local progress=false
         for _,u in ipairs(waiting) do
@@ -603,7 +592,10 @@ function R:place(s,initialBuild)
                     local foot=footprints[u.id];local moved=false
                     for y=0,20-foot.height do for x=0,self.width-foot.width do
                         local free=true
-                        for px=x,x+foot.width-1 do for py=y,y+foot.height-1 do if targets[px..':'..py]then free=false end end end
+                        for px=x,x+foot.width-1 do for py=y,y+foot.height-1 do
+                            local cell=px..':'..py
+                            if targets[cell] or sceneryTargets[cell] then free=false end
+                        end end
                         if free and self.api.moveTestFieldUnit(self.live[u.id],x,y)then
                             moved=true
                             if self.diag then self.diag:record('deployment_parking',{model_id=u.id,native_id=self.live[u.id],x=x,y=y,width=foot.width,height=foot.height,result='temporary; exact final deployment still required'})end
@@ -632,13 +624,20 @@ function R:cacheObjects()
     if not ok or type(lifecycle)~='table' or lifecycle.complete~=true or lifecycle.open~=true then return end
     local rows={}
     for _,row in ipairs(lifecycle.created or {}) do
-        if FieldObjects.role(row)=='scenery' then rows[row.unit]=row end
+        local role=FieldObjects.role(row)
+        if role=='scenery' then rows[row.unit]=row end
+        if role=='scenery' or role=='structure' then Catalog.recordObjectRole(self.catalog,row.monster or row.createdMonster,role) end
     end
     self.scenery={session=lifecycle.session,rows=rows}
 end
 function R:fieldObjectAt(x,y)
     local verified=self.verified
-    if self.blocked or not verified or not verified.native or verified.native.classificationVersion~=1 then return end
+    if self.blocked then return end
+    local object=self.objects[x..':'..y]
+    if not verified or not verified.native or verified.native.classificationVersion~=1 then
+        if object then return {},'unverified' end
+        return
+    end
     if next(verified.structures or {}) and type(self.api.battleUnitAt)=='function' then
         local id=self.api.battleUnitAt(x,y)
         local row=id and verified.structures[id] and verified.rows[id]
@@ -646,9 +645,10 @@ function R:fieldObjectAt(x,y)
     end
     local scenery=self.scenery
     if scenery and scenery.session==verified.native.session then
-        local row=scenery.rows[self.objects[x..':'..y]]
+        local row=scenery.rows[object]
         if row then return row,'scenery' end
     end
+    if object then return {},'unverified' end
 end
 function R:waterWarning(unit,x,y)
     if not self.current or not M.isWaterTerrain(self.current.terrain)then return nil end
@@ -662,18 +662,26 @@ end
 function R:move(u,x,y)
     self.lastPlacementWarning=nil
     self.lastConfig=nil
+    if u.team==3 and not FieldObjects.neutralBuilding(self.catalog.byId[u.monster]) then
+        return false,'Neutral supports verified building elements only. Existing field kept.'
+    end
     local good,previous=self:ready(self.current)
     if not good then return false,previous end
-    if not self.api.moveTestFieldUnit(self.live[u.id],x,y) then
+    local id=self.live[u.id]
+    local moved,reason
+    if u.scenery then moved,reason=self.api.moveTestFieldScenery(id,previous.native.session,previous.rows[id].generation,x,y)
+    else moved,reason=self.api.moveTestFieldUnit(id,x,y) end
+    if not moved then
         local unchanged,observed,details=self:check(self.current,true,previous)
         if not unchanged then return self:quarantine(self.current,observed,nil,details) end
         local snapshot=self.current and self:snapshot(self.current)
-        if self.current then self:failure('move','native move refused',self.current,snapshot,'unchanged',{name=u.name,id=u.id,unit=self.live[u.id],x=x,y=y}) end
+        if self.current then self:failure('move',reason or 'native move refused',self.current,snapshot,'unchanged',{name=u.name,id=u.id,unit=self.live[u.id],x=x,y=y}) end
+        if reason=='scenery_occupied' then return false,'Move the unit off this building before moving the building.' end
         return false,'Cell blocked, outside field, or unit does not fit. Original unit kept.'
     end
     u.x=x;u.y=y
     if self.current then for _,v in ipairs(self.current.units) do if v.id==u.id then v.x=x;v.y=y end end end
-    self.lastPlacementWarning=self:waterWarning(self.live[u.id],x,y)
+    if u.scenery then self:cacheObjects() else self.lastPlacementWarning=self:waterWarning(id,x,y) end
     local valid,observed,details=self:check(self.current,true,previous)
     if not valid then return self:quarantine(self.current,observed,self:snapshot(self.lastKnownGood),details) end
     self:accept(self.current,observed)
@@ -690,21 +698,45 @@ function R:add(s,monster,team,x,y,template)
         return false,why
     end
     if not self.open then return refused('Open the battlefield before placing units.') end
+    if template and (template.team==3 or team==3) and
+        (team~=template.team or template.scenery~=true or monster~=template.monster) then
+        return refused('A copy must keep its verified scenery role and template.')
+    end
+    if team==3 then
+        local problem=M.neutralPlacementProblem(self.api,s.terrain)
+        if problem then return refused(problem) end
+    end
+    if template and hasSavedConfiguration(template) and not Loadout.available(self.api) then return refused(configurationRequired) end
     local healthy,previous=self:ready(s)
     if not healthy then return false,previous end
-    if M.at(s,x,y) or x<0 or x>=self.width or y<0 or y>=20 then return refused('Cell occupied or outside the field. Existing army kept.') end
+    if M.at(s,x,y,team==3) or x<0 or x>=self.width or y<0 or y>=20 then return refused('Cell occupied or outside the field. Existing army kept.') end
     if type(self.api.removeTestFieldUnit)~='function' then return refused('Safe placement requires the experimental editor API. Existing army kept; Export Diagnostics for details.') end
-    if template and template.baseline and type(self.api.setTestFieldSpells)~='function' then return refused('Copying saved caster configuration requires the experimental editor API. Existing army kept.') end
     local candidate=M.copy(s); local m=self.catalog.byId[monster]
-    if not m or (team~=1 and team~=2) then return refused('Invalid unit or team. Existing army kept.') end
+    if not m or not M.teamOwners[team] then return refused('Invalid unit or team. Existing army kept.') end
+    if team==3 and not FieldObjects.neutralBuilding(m) then return refused('Neutral supports verified building elements only. Existing field kept.') end
     local waterProblem=M.waterMonsterProblem(self.api,s.terrain,monster);if waterProblem then return refused(waterProblem)end
-    if s.allowMultipleUnique and not self:multipleUniqueAvailable() then return refused('Multiple unique units require the updated experimental extender. Existing army kept.') end
+    if s.allowMultipleUnique and not self:multipleUniqueAvailable() then return refused('Multiple unique units require a compatible CoE5SE build. Existing army kept.') end
     if not s.allowMultipleUnique and (self.api.get('monsterAbility',monster,'unique') or 0)>0 then
         for _,old in ipairs(s.units) do if old.monster==monster then
             return refused('This creature is unique and is already on the field. Choose another creature; existing unit kept.')
         end end
     end
     local u=M.add(candidate,monster,m.name,team,x,y,template)
+    if team==3 then
+        local unit,reason=self.api.addTestFieldScenery(monster,x,y)
+        if not unit then
+            local kept,detail,d=self:check(s,true,previous)
+            if not kept then return self:quarantine(s,detail,before,d) end
+            return refused('Scenery placement refused ('..tostring(reason)..'). Existing field kept.')
+        end
+        if previous.rows[unit] then return self:quarantine(s,'scenery_allocation_returned_existing_handle',before,{native_id=unit}) end
+        u.scenery=true;self.live[u.id]=unit
+        local good,verified,detail=self:check(candidate,true,previous)
+        if not good then return self:quarantine(s,verified,before,detail) end
+        self:cacheObjects();self:accept(candidate,verified)
+        if self.diag then self.diag:record(template and 'scenery_copy' or 'scenery_place',{monster=monster,model_id=u.id,native_id=unit,x=x,y=y,result='verified'}) end
+        return true,candidate,u
+    end
     local made,createWhy=self.api.addTestFieldUnits(team==1 and 'friends' or 'enemies',{{monster,1}})
     if not made or #made~=1 then
         local kept,observed,details=self:check(s,true,previous)
@@ -717,7 +749,8 @@ function R:add(s,monster,team,x,y,template)
         return self:quarantine(s,'allocation_returned_existing_handle',before,{native_id=unit,model_id=previous.used[unit],monster=monster})
     end
     self.live[u.id]=unit;local oldWidth=self.width;self.width=self.api.get('battleWidth')
-    local ok,why=self.api.moveTestFieldUnit(unit,x,y)
+    local ok,why=true,nil
+    ok,why=self.api.moveTestFieldUnit(unit,x,y)
     local stage='move'
     if ok and self.width~=oldWidth then stage='restore_positions_after_resize';ok,why=self:place(candidate) end
     if ok then stage='configure';ok,why=self:configure(u,unit) end
@@ -769,7 +802,9 @@ function R:remove(s,u)
     if not healthy then return false,previous end
     local unit=self.live[u.id]
     if type(self.api.removeTestFieldUnit)~='function' then return false,'Safe removal requires the experimental editor API. Army kept.' end
-    local ok,why=self.api.removeTestFieldUnit(unit)
+    local ok,why
+    if u.scenery then ok,why=self.api.removeTestFieldScenery(unit,previous.native.session,previous.rows[unit].generation)
+    else ok,why=self.api.removeTestFieldUnit(unit) end
     if not ok then
         local unchanged,observed,details=self:check(s,true,previous)
         if not unchanged then return self:quarantine(s,observed,before,details) end
@@ -780,8 +815,13 @@ function R:remove(s,u)
         local good,reason=self:build(candidate)
         if good then return true,candidate end
         return false,reason
-    elseif not ok then self:failure('delete',why,s,before,'unchanged',{name=u.name,id=u.id});return false,'The game refused removal. Army kept; Export Diagnostics for details.' end
-    local retired,retirementWhy=self:retirementVerified(unit)
+    elseif not ok then
+        self:failure('delete',why,s,before,'unchanged',{name=u.name,id=u.id})
+        if why=='scenery_occupied' then return false,'Move the unit off this building before removing the building.' end
+        return false,'The game refused removal. Army kept; Export Diagnostics for details.'
+    end
+    local retired,retirementWhy=ok
+    if not u.scenery then retired,retirementWhy=self:retirementVerified(unit) end
     if not retired then
         self.cleanupFailed=true
         return self:quarantine(s,'Native removal was not permanent. Restart the isolated game with the updated Extender and load the recovery file.',before,{model_id=u.id,native_id=unit,retirement_verified=0,retirement_detail=retirementWhy})
@@ -789,6 +829,7 @@ function R:remove(s,u)
     local candidate=M.copy(s);M.remove(candidate,u.id);self.live[u.id]=nil
     local good,observed,details=self:check(candidate,true,previous)
     if not good then self.live[u.id]=unit;return self:quarantine(s,observed,before,details) end
+    if u.scenery then self:cacheObjects() end
     self:accept(candidate,observed)
     if self.diag then self.diag:record('delete',{name=u.name,id=u.id,model_id=u.id,native_id=unit,result='permanently retired; native tombstone and world detachment verified; no anchor or hit cells'}) end
     return true,candidate

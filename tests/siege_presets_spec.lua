@@ -84,7 +84,7 @@ test('known siege names and provenance capability cannot substitute for native p
         local closed=0;local api={testFieldTerrains=function()return{0}end,testFieldEditorCapabilities=function()return{structureProvenance=1}end,
             closeTestField=function()closed=closed+1;error('must not close')end}
         local r=R.new(api,catalog());local old=M.new();r.current=old;r.open=true;local s=M.new();s.terrain=terrain
-        local ok,why=r:build(s);assert(not ok and why:find('requires the matching experimental terrain API',1,true)and closed==0 and r.current==old and r.open)
+        local ok,why=r:build(s);assert(not ok and why:find('requires the CoE5SE terrain API',1,true)and closed==0 and r.current==old and r.open)
     end
 end)
 test('schema4 preserves each siege identity, native names and exact actor configuration/state',function()

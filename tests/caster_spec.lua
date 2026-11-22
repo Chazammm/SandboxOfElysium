@@ -26,7 +26,8 @@ local function fixture()
     god.baseline={known={}};for _,id in ipairs({101,102,103,104,105,106,261,262,263,264,266,268}) do god.baseline.known[#god.baseline.known+1]=id..':'..infos[id].name end
     god.spells={};for _,id in ipairs({101,102,103,104,261,262,263,264}) do god.spells[#god.spells+1]=id..':'..infos[id].name end
     god.items={'Saved sigil'}
-    local catalog={byId={[141]={id=141,name='God Emperor'},[13]={id=13,name='Spearman'}},mods={},spellKeys=keys,itemNames={['Saved sigil']=17},terrainById={[0]={name='Plain'}}}
+    local catalog={byId={[141]={id=141,name='God Emperor'},[13]={id=13,name='Spearman'}},mods={},spellKeys=keys,itemNames={['Saved sigil']=17},
+        byItemId={[17]={id=17,name='Saved sigil',slot=7}},terrainById={[0]={name='Plain'}}}
     local observed,records,files,writes={},{},{},{}
     local calls={safe=0,unsafe=0,inspect=0,build=0}
     local api={spellInfo=function(id)return infos[id]end,memorizeAllowance=function()return 4 end}
@@ -56,7 +57,21 @@ local function fixture()
     end
     api.memorizeSpell=function()calls.unsafe=calls.unsafe+1;error('unchecked primitive called')end
     api.unmemorizeSpell=api.memorizeSpell
-    api.setTestFieldSpells=function()return false,'memorize_limit',{stage='validate',path=19,actual=6,allowed=4,allowance=4}end
+    api.takeItem=api.memorizeSpell;api.giveItem=api.memorizeSpell
+    api.testFieldLoadoutState=function(id)
+        local state=api.testFieldSpellState(id)
+        if records[id].monster~=141 then state.schools={} end
+        for _,school in ipairs(state.schools)do school.base=school.level;school.templateBase=school.level end
+        state.items={}
+        for position=0,19 do
+            local item=api.get('unitItem',id,position)
+            state.items[position+1]={id=item,position=position,slotType=7,name=api.get('itemName',item)}
+        end
+        return state
+    end
+    api.setTestFieldConfiguration=function()
+        return false,'memorize_limit',{stage='validate',path=19,actual=6,allowed=4,allowance=4,rollbackVerified=true}
+    end
     local d=D.new(api);local r=R.new(api,catalog,d)
     local function loadReadback(scene)
         observed={complete=true,width=32,height=20,issues={},units={},grid={}};records={};r.live={}
@@ -73,6 +88,7 @@ local function fixture()
     end
     loadReadback(s);r.lastKnownGood=M.copy(s)
     return {r=r,s=s,god=god,d=d,api=api,catalog=catalog,calls=calls,files=files,writes=writes,load=loadReadback,
+        setSpells=function(id,known,memorized)records[id].known=M.copy(known);records[id].mem=M.copy(memorized)end,
         extra='268:'..infos[268].name,extra2='266:'..infos[266].name}
 end
 local function invalidOriginal(f)
@@ -113,6 +129,42 @@ test('bulk restore refusal keeps the requested ten exact spells and records nati
     local p=f.r.spellRepairProblems[invalid.units[1].id];local solar
     for _,school in ipairs(p.schools)do if school.path==19 then solar=school end end
     assert(solar.selected_count==6 and solar.actual_memorized==4 and solar.allowance==4 and #p.saved_memorized==10)
+end)
+test('reconstruction uses the full configuration transaction with ordered spells and original items and schools',function()
+    local f=fixture();local candidate=M.copy(f.god)
+    candidate.baseline.known[1],candidate.baseline.known[2]=candidate.baseline.known[2],candidate.baseline.known[1]
+    candidate.spells[1],candidate.spells[2]=candidate.spells[2],candidate.spells[1]
+    local wantedKnown,wantedMem=M.copy(candidate.baseline.known),M.copy(candidate.spells)
+    local calls=0
+    f.api.setTestFieldConfiguration=function(id,state)
+        calls=calls+1
+        assert(id==11 and state.restoreKnown==true and #state.items==20 and state.items[1]==17)
+        for position=2,20 do assert(state.items[position]==-1)end
+        assert(equal(state.schools,{{path=5,level=3},{path=19,level=3}}))
+        assert(state.known[1]==102 and state.known[2]==101 and state.memorized[1]==102 and state.memorized[2]==101)
+        f.setSpells(id,state.known,state.memorized)
+        return true,nil,{rollbackVerified=true}
+    end
+    assert(f.r:configure(candidate,11))
+    assert(calls==1 and f.calls.unsafe==0 and f.r.live[candidate.id]==11)
+    assert(equal(candidate.baseline.known,wantedKnown) and equal(candidate.spells,wantedMem))
+    assert(equal(candidate.equipment,{{position=0,id=17,name='Saved sigil'}}))
+end)
+test('saved caster rebuild and copy refuse missing configuration before native mutation',function()
+    for _,missing in ipairs({'testFieldLoadoutState','setTestFieldConfiguration','capability'})do
+        local f=fixture();local original=M.copy(f.s)
+        if missing=='capability' then f.api.testFieldEditorCapabilities=function()return {configuration=0}end
+        else f.api[missing]=nil end
+        f.r._build=function()error('must refuse before opening or replacing the field')end
+        f.api.addTestFieldUnits=function()error('must refuse before allocating an actor')end
+        f.api.removeTestFieldUnit=function()error('must refuse before touching any actor')end
+        local built,buildWhy=f.r:build(M.copy(f.s))
+        assert(not built and buildWhy:find('configuration API',1,true))
+        f.r.ready=function()error('must refuse before changing the active field verification mode')end
+        local copied,copyWhy=f.r:add(f.s,f.god.monster,1,10,10,f.god)
+        assert(not copied and copyWhy:find('configuration API',1,true))
+        assert(equal(original,f.s) and f.r.open and not f.r.blocked and f.calls.unsafe==0)
+    end
 end)
 test('native Inspect unverified detail locks editing even when the independent partial view stays healthy',function()
     for _,success in ipairs({false,true})do

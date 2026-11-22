@@ -11,8 +11,8 @@ end
 function B.plan(r,s)
     if not B.available(r) then return nil,'Clear All Held Items needs the updated experimental equipment API. Current setup kept.' end
     local ready,why=r:ready(s);if not ready then return nil,why end
-    local plan={actors={},units=#s.units,teamA=0,teamB=0,items=0,cursed=0,implanted=0}
-    for _,u in ipairs(s.units) do
+    local plan={actors={},units=M.count(s,1)+M.count(s,2),teamA=0,teamB=0,items=0,cursed=0,implanted=0}
+    for _,u in ipairs(s.units) do if not u.scenery then
         local native=r.live[u.id];local state;state,why=Loadout.read(r,native)
         if not state then return nil,'Cannot verify '..M.displayName(u)..' #'..u.id..': '..tostring(why) end
         if type(state.generation)~='number' or type(state.organInjuryFlags)~='number' then return nil,'Native equipment identity/injury readback is incomplete. Current setup kept.' end
@@ -30,7 +30,7 @@ function B.plan(r,s)
             if u.team==1 then plan.teamA=plan.teamA+1 else plan.teamB=plan.teamB+1 end
         end
         plan.items=plan.items+held;plan.cursed=plan.cursed+cursed;plan.implanted=plan.implanted+implanted
-    end
+    end end
     return plan
 end
 function B.run(r,s,plan)

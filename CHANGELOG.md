@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0-beta.2
+
+- Verified with official CoE5SE 3.8.2 on Windows CoE5 5.43.
+- Added an opt-in Ctrl + right-click and drag deletion tool for placed army units. Enable it in the battlefield footer.
+- Reopen Sandbox after changing enabled mods to refresh the unit browser and portraits. In-memory setups stay with their original mod list, and saved scenarios keep their existing requirements.
+
+## 0.2.0-beta.1
+
+Prepare the first public beta using official CoE5SE 3.8.1 and the verified stock implant recovery fix. See the [player-facing release notes](docs/RELEASE-CHANGELOG.md).
+
 ## 0.2.0-rc.1 - 2026-11-19
 
 - Prepare the non-naval Sandbox candidate with native unit View, amber placement preview and the guarded exact deployment fix for the 61-unit Guard Tower scenario.
@@ -7,6 +17,9 @@
 - Gate editor startup on compatible retirement and restoration capabilities. Keep the mod package separate from the Extender and all private test data.
 - Verify native unit View, zoom, Fit, pan and battle centering on the upstream-based Windows review stack. Reuse upstream fitted unit and item sprites.
 - Label neutral scenery and fixed defender structures separately. Preserve native siege ownership, roster counts and exact deployment.
+- Protect scenarios, recovery records and existing reports from conflicting Save and Export names. Refuse saved rosters with extra unit sections.
+- Refresh the battlefield between formation edits so dense armies stay within the native Lua execution budget. Keep per-actor placement checks and drag spacing.
+- Restore saved spells through the full CoE5SE actor configuration API. Open, Copy and launcher checks no longer require the standalone spell setter.
 
 ## Unreleased local development - editor.16, 2026-11-17
 
@@ -28,9 +41,9 @@
 - Retain editor.13 zoom and Fortified Hoburg. [Tests and limitations](docs/TEST-LOG-LAYOUT-2026-11-17.md).
 
 
-## Unreleased local development — editor.13, 2026-11-17
+## Unreleased local development ï¿½ editor.13, 2026-11-17
 
-- Fit the actual playable field into the usable editor area, preserving aspect ratio and native pointer mapping. Add Fit, 10–200% native zoom and full reachable pan bounds; keep wheel/menu priority and existing formation controls.
+- Fit the actual playable field into the usable editor area, preserving aspect ratio and native pointer mapping. Add Fit, 10ï¿½200% native zoom and full reachable pan bounds; keep wheel/menu priority and existing formation controls.
 - Enable Fortified Hoburg only with the matching native structure-provenance contract. Preserve native walls/gate, actual siege movement/battle, and exact Save/Load/Reset/Rematch. Structures remain separate from army counters and editing.
 - Use native strict full-footprint passability for proven map scenery in a verified siege; keep unknown objects and actor collisions blocked. Preserve structures across placement/configuration rollback and fail closed on provenance/cleanup failure.
 - Add focused offline/native regressions and [exact version-specific evidence](docs/TEST-ZOOM-FORTIFICATION-2026-11-17.md). Separate Extender source, no binary bundling, PR modification, publication or release.

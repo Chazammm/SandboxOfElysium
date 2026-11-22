@@ -138,7 +138,7 @@ function W.result(self,ok,why)
 end
 function W.inspectItem(self,id)
     local ready,before=self.runtime:ready(self.scenario);if not ready then self:notice(before);return end
-    if type(self.api.inspectTestFieldItem)~='function' then self:notice('Native item Inspect needs the updated experimental Extender. No substitute card is shown.');return end
+    if type(self.api.inspectTestFieldItem)~='function' then self:notice('Native item Inspect needs a compatible CoE5SE build. No substitute card is shown.');return end
     self:setSearchFocus(false);self.inNativeMenu=true
     local ok,detail=self.api.inspectTestFieldItem(id)
     self.inNativeMenu=false;self.releaseBarrier=true;self.dragBlocked=true
@@ -208,8 +208,10 @@ function W.draw(self)
         if u then
             local ui=self.api.ui;local x,y,width,top=w.x,w.y,w.w,w.y+w.h
             ui.drawRect(x-2,y-2,width+4,w.h+4,0.015,0.025,0.035,1)
-            ui.drawRect(x,y,width,w.h,0.065,0.095,0.125,0.99);ui.drawRect(x,top-29,width,29,0.13,0.23,0.31,1)
-            text(self,x+10,top-20,13,trim(M.displayName(u),34)..' | '..(u.team==1 and 'A' or 'B')..' #'..u.id)
+            ui.drawRect(x,y,width,w.h,0.065,0.095,0.125,0.99)
+            if u.team==3 then ui.drawRect(x,top-29,width,29,0.30,0.30,0.30,1)
+            else ui.drawRect(x,top-29,width,29,0.13,0.23,0.31,1) end
+            text(self,x+10,top-20,13,trim(M.displayName(u),34)..' | '..M.teamLabels[u.team]..' #'..u.id)
             button(self,'window','close','X',x+width-29,top-26,25,23)
             local tabX={x+10,x+110,x+width-72};local tabW={94,width-190,62}
             for i,label in ipairs(tabs)do button(self,'window','tab:'..i,label,tabX[i],top-61,tabW[i],25,w.tab==i and {0.18,0.34,0.46} or nil)end

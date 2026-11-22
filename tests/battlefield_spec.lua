@@ -26,7 +26,7 @@ test('terrain identity is exact and capability does not replace identity',functi
 end)
 test('legacy empty refusal occurs before native close or rebuild',function()
     local calls=0;local r=R.new({},catalog);r._build=function()calls=calls+1 end
-    local ok,why=r:build(M.new());assert(not ok and calls==0 and why:find('empty%-editor'))
+    local ok,why=r:build(M.new());assert(not ok and calls==0 and why:find('Empty teams require',1,true))
 end)
 local function buildFixture(team)
     local s=M.new();if team>0 then M.add(s,13,'Spearman',team,4,4)end

@@ -8,6 +8,17 @@ local M=require('sandbox.model');local C=require('sandbox.catalog');local U=requ
 assert(loadfile('tests/interface_probe.lua'))
 local count=0
 local function test(name,fn)fn();count=count+1;print('PASS '..name)end
+test('object candidate discovery is explicitly name-based and partial',function()
+    local names={[0]='Bronze Wall',[1]='Cabbage',[2]='Spearman',[3]='Bush', [4]='Wall Warrior'}
+    local api={get=function(key,id)
+        if key=='monsterLastIndex'then return 4 elseif key=='monsterName'then return names[id]
+        elseif key=='monsterSprite'then return id elseif key=='monster'then return false else return -1 end
+    end,spellInfo=function()end,monsterHasRanged=function()return false end}
+    local c=C.read(api);local candidates=C.filter(c,'','object_candidate')
+    assert(#candidates==3 and c.byId[0].categories.object_candidate and c.byId[1].categories.object_candidate)
+    assert(not c.byId[2].categories.object_candidate and not c.byId[4].categories.object_candidate)
+    assert(#C.filter(c,'wall','object_candidate')==1)
+end)
 test('native ranged positives, negatives and unavailable results remain distinct',function()
     local api={get=function(key,id)
         if key=='monsterLastIndex'then return 2 elseif key=='monsterName'then return ({[0]='Archer',[1]='Spearman',[2]='Caster'})[id]
@@ -194,5 +205,28 @@ test('automatic report archives preserve legacy and every prior battle file',fun
     assert(second=='battle-session-3' and files[first].summary.battle==1 and files[second].summary.battle==2 and files['battle-session-1'].previous==1)
     local old=files['last-battle'];api.writeIni=function()return false end
     assert(not r:archive() and files['last-battle']==old,'archive failure overwrote last report')
+end)
+test('manual report export requires a free name and preserves a case variant of an existing scenario',function()
+    local existing={scenario={count=2}}
+    local files={arena=existing}
+    local api={observe=function()end,listIni=function()return{'ArEnA'}end,
+        writeIni=function(name,data)files[name:lower()]=data;return true end}
+    local r=Report.new(api);r.result={summary={battle=1},types={}}
+    local ok,why=r:export('arena');assert(not ok and why:find('already',1,true) and files.arena==existing)
+    assert(not r:export('last-battle') and not files['last-battle'])
+    assert(r:export('fight-result') and files['fight-result'].summary.battle==1)
+end)
+test('automatic reports keep scenario data or unreadable data at last-battle',function()
+    for _,readable in ipairs({true,false})do
+        local previous={scenario={count=2}}
+        local files={['last-battle']=previous}
+        local api={observe=function()end,readIni=function(name)if name=='last-battle' and readable then return previous end end,
+            listIni=function()return{'Last-Battle'}end,
+            writeIni=function(name,data)files[name:lower()]=data;return true end}
+        local r=Report.new(api);r.result={summary={battle=1},types={}}
+        local name,why=r:archive()
+        assert(name=='battle-local-1' and why:find('kept',1,true))
+        assert(files[name].summary.battle==1 and files['last-battle']==previous and not files['battle-previous-local-1'])
+    end
 end)
 print(count..' offline interface checks passed; no native input, sprite rendering or combat was simulated')

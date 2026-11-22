@@ -1,4 +1,5 @@
 local M = {}
+local Objects=require('sandbox.battlefield_objects')
 M.labelLimit=48
 M.nativeNameCharacters=32
 M.nativeNameBytes=47
@@ -83,6 +84,20 @@ end
 function M.new()
     return {version=4, terrain=0, size='Native automatic', startingItems=true, colors={1,2}, allowMultipleUnique=false, units={}, nextId=1}
 end
+M.teamOwners={0,24,31}
+M.teamLabels={'Team A','Team B','Neutral'}
+function M.neutralAvailable(api)
+    for _,name in ipairs({'testFieldSceneryTypes','testFieldSceneryState','addTestFieldScenery','moveTestFieldScenery','removeTestFieldScenery','testFieldEditorCapabilities'}) do
+        if type(api[name])~='function' then return false end
+    end
+    local ok,caps=pcall(api.testFieldEditorCapabilities)
+    return ok and type(caps)=='table' and caps.sceneryVersion==1
+end
+function M.neutralPlacementProblem(api,terrain)
+    if not M.neutralAvailable(api) then return 'Battlefield objects require the experimental owned scenery API. Setup kept.' end
+    if M.isWaterTerrain(terrain) then return 'Object placement is unavailable on water and coastal maps. Setup kept.' end
+end
+M.legacyNeutralProblem='This scenario contains legacy Neutral combat actors. Object mode cannot restore them as scenery. The original file is kept.'
 M.colors = {
     {'Blue',0.15,0.40,1}, {'Red',1,0.18,0.16}, {'Green',0.20,0.8,0.25},
     {'Yellow',1,0.85,0.15}, {'Purple',0.70,0.25,0.9}, {'Orange',1,0.50,0.10},
@@ -96,8 +111,10 @@ function M.cells(kind, n, x, y)
     for dy=0,h-1 do for dx=0,w-1 do out[#out+1]={x+dx,y+dy} end end
     return out
 end
-function M.at(s,x,y)
-    for _,u in ipairs(s.units) do if u.x==x and u.y==y then return u end end
+function M.at(s,x,y,objectLayer)
+    for _,u in ipairs(s.units) do
+        if u.x==x and u.y==y and (objectLayer==nil or (u.team==3)==objectLayer) then return u end
+    end
 end
 function M.count(s,team,monster)
     local n=0; for _,u in ipairs(s.units) do
@@ -114,15 +131,23 @@ function M.remove(s,id)
     for i,u in ipairs(s.units) do if u.id==id then table.remove(s.units,i); return u end end
 end
 function M.encode(s,mods)
-    local t={scenario={schema=4,terrain=s.terrain,size=s.size,minimum_width=s.minimumWidth,starting_items=s.startingItems==false and 0 or 1,next_id=s.nextId,a_color=s.colors[1],b_color=s.colors[2],allow_multiple_unique=s.allowMultipleUnique and 1 or 0,count=#s.units},mods={}}
+    local neutral=M.count(s,3)>0
+    local legacy,objects=false,0
+    for _,u in ipairs(s.units) do if u.team==3 then
+        if u.scenery then objects=objects+1 else legacy=true end
+    end end
+    local t={scenario={schema=not neutral and 4 or legacy and 5 or 6,
+        neutral_role=neutral and (legacy and 'unit_layer_slot31_v1' or 'object_layer_scenery_v1') or nil,
+        terrain=s.terrain,size=s.size,minimum_width=s.minimumWidth,starting_items=s.startingItems==false and 0 or 1,next_id=s.nextId,a_color=s.colors[1],b_color=s.colors[2],allow_multiple_unique=s.allowMultipleUnique and 1 or 0,count=#s.units},mods={}}
     local actorCount=0;for _,u in ipairs(s.units)do if u.condition then actorCount=actorCount+1 end end
     t.scenario.actor_state_count=actorCount;t.scenario.full_native_state=0
-    t.scenario.restoration_scope=actorCount==#s.units and 'bounded_actor_state_v1'or'configuration_only_or_mixed'
+    t.scenario.restoration_scope=actorCount==#s.units-objects and 'bounded_actor_state_v1'or'configuration_only_or_mixed'
     local names=0;for _,u in ipairs(s.units)do if u.nativeName~=nil then names=names+1 end end
     t.scenario.native_name_version=1;t.scenario.native_name_count=names
     for i,name in ipairs(mods) do t.mods[tostring(i)]=name end
     for i,u in ipairs(s.units) do
         local row={model_id=u.id,omit_starting_items=u.omitStartingItems and 1 or 0,monster=u.monster,name=u.name,team=u.team,x=u.x,y=u.y,item_count=#u.items,spell_count=#u.spells}
+        if u.scenery then row.object_role='scenery' end
         if u.nativeName~=nil then
             row.native_name_hex=u.nativeName:gsub('.',function(c)return('%02x'):format(c:byte())end)
             row.native_name_scope='native_individual_v1'
@@ -151,20 +176,37 @@ function M.isNavalScenario(t)
     return type(t)=='table' and (t.fleet~=nil or t.mode=='native_fleet_v1' or
         type(t.scenario)=='table' and t.scenario.mode=='native_fleet_v1')
 end
+function M.reservedDataName(name)
+    local normalized=name:lower()
+    local prefix=normalized:match('^([a-z]+)%-')
+    return normalized=='launcher-context' or normalized=='last-battle' or prefix=='diagnostics'
+        or prefix=='recovery' or prefix=='repaired' or prefix=='battle'
+end
 function M.decode(t,catalog,activeMods)
     if M.isNavalScenario(t)then return nil,'This scenario requires ship and passenger battles, which are unavailable in this release' end
     if type(t)~='table' or type(t.scenario)~='table' then return nil,'Missing scenario section' end
     local h=t.scenario
     local terrain=integer(h.terrain,0,100000)
     local schema=tonumber(h.schema)
+    if schema==5 and h.neutral_role=='unit_layer_slot31_v1' then return nil,M.legacyNeutralProblem end
     local minimum=h.minimum_width~=nil and integer(h.minimum_width,32,1536)or nil
     local testedMinimums={[32]=true,[50]=true,[70]=true,[160]=true}
     if minimum and not testedMinimums[minimum]then return nil,'Unsupported field size: this editor only accepts its tested minimum presets' end
-    local validSize=h.size=='Native automatic'and h.minimum_width==nil or (schema==3 or schema==4) and h.size=='Minimum width'and minimum~=nil
-    if (schema~=1 and schema~=2 and schema~=3 and schema~=4) or not M.terrainNames[terrain] or not validSize then return nil,'Unsupported scenario schema, terrain or field size' end
+    local validSize=h.size=='Native automatic'and h.minimum_width==nil or (schema==3 or schema==4 or schema==6) and h.size=='Minimum width'and minimum~=nil
+    if (schema~=1 and schema~=2 and schema~=3 and schema~=4 and schema~=6) or not M.terrainNames[terrain] or not validSize then return nil,'Unsupported scenario schema, terrain or field size' end
+    if (schema==6 and h.neutral_role~='object_layer_scenery_v1') or (schema<6 and h.neutral_role~=nil) then return nil,'Unsupported saved object role' end
     local expected=M.terrainNames[terrain]
     if not catalog.terrainById or not catalog.terrainById[terrain] or catalog.terrainById[terrain].name~=expected then return nil,'Required native terrain unavailable or changed: '..expected end
     local n=integer(h.count,0,2000); if not n then return nil,'Invalid unit count (maximum 2000)' end
+    for section in pairs(t) do
+        local index=type(section)=='string' and section:lower():match('^unit(%d+)$')
+        if index then
+            local position=integer(index,1,n)
+            if not position or section~='unit'..position then
+                return nil,'Unit section '..section..' does not match the declared roster'
+            end
+        end
+    end
     local mods={}; for _,name in ipairs(activeMods) do mods[name]=true end
     for _,name in pairs(t.mods or {}) do if not mods[name] then return nil,'Required active mod missing: '..name end end
     local s=M.new();s.terrain=terrain;s.size=h.size;s.minimumWidth=minimum;s.sourceSchema=schema;s.legacyState=schema<3;s.migrationRequired=schema<4
@@ -187,12 +229,28 @@ function M.decode(t,catalog,activeMods)
         end
         local id=integer(r.monster,0,100000); local m=id and catalog.byId[id]
         if not m or m.name~=r.name then return nil,'Missing or changed unit: '..tostring(r.name)..' (#'..tostring(r.monster)..')' end
-        local team,x,y=integer(r.team,1,2),integer(r.x,0,1535),integer(r.y,0,19)
-        if not team or not x or not y or M.at(s,x,y) then return nil,'Invalid or overlapping position for unit '..i end
+        local team,x,y=integer(r.team,1,schema==6 and 3 or 2),integer(r.x,0,1535),integer(r.y,0,19)
+        if not team or not x or not y or M.at(s,x,y,team==3) then return nil,'Invalid or overlapping position for unit '..i end
+        if team==3 then
+            local problem=Objects.savedNeutralProblem(m)
+            if problem then return nil,problem end
+        end
+        local atOtherLayer=M.at(s,x,y,team~=3)
+        if atOtherLayer then
+            local scenery=team==3 and m or catalog.byId[atOtherLayer.monster]
+            if not Objects.neutralStanding(scenery) then return nil,'Saved unit overlaps a blocking object: '..scenery.name end
+        end
         local ni,ns=integer(r.item_count,0,schema>=2 and 20 or 8),integer(r.spell_count,0,30)
         if not ni or not ns then return nil,'Invalid equipment/spell list' end
         if not r.known_count and (ni>0 or ns>0) then return nil,'Configured unit is missing its native baseline' end
         local u=M.add(s,id,r.name,team,x,y)
+        if team==3 then
+            if r.object_role~='scenery' or ni~=0 or ns~=0 or r.equipment_count~=nil or r.school_count~=nil or
+                r.known_count~=nil or r.state_version~=nil or r.native_name_hex~=nil or r.label~=nil then
+                return nil,'Saved scenery must have only its verified template and position'
+            end
+            u.scenery=true
+        elseif r.object_role~=nil then return nil,'An army unit has an unexpected object role' end
         if schema>=3 then
             local modelId=integer(r.model_id,1,999999999);if not modelId or modelIds[modelId]then return nil,'Invalid or duplicate saved model identity' end
             modelIds[modelId]=true;largestId=math.max(largestId,modelId);u.id=modelId
@@ -204,7 +262,7 @@ function M.decode(t,catalog,activeMods)
             u.label=r.label~='' and r.label or nil
         end
         if r.native_name_hex~=nil or r.native_name_scope~=nil then
-            if schema~=4 or r.native_name_scope~='native_individual_v1' or type(r.native_name_hex)~='string' or #r.native_name_hex>2*M.nativeNameBytes or #r.native_name_hex%2~=0 or r.native_name_hex:find('[^%da-fA-F]')then return nil,'Invalid or unsupported native-name data'end
+            if schema<4 or r.native_name_scope~='native_individual_v1' or type(r.native_name_hex)~='string' or #r.native_name_hex>2*M.nativeNameBytes or #r.native_name_hex%2~=0 or r.native_name_hex:find('[^%da-fA-F]')then return nil,'Invalid or unsupported native-name data'end
             local name=r.native_name_hex:gsub('..',function(hex)return string.char(tonumber(hex,16))end)
             local valid,why=M.validNativeName(name);if not valid then return nil,why end
             u.nativeName=name
@@ -250,14 +308,15 @@ function M.decode(t,catalog,activeMods)
         local nextId=integer(h.next_id,1,1000000000);if not nextId or nextId<=largestId then return nil,'Invalid next model identity' end;s.nextId=nextId
         local actorCount=0;for _,u in ipairs(s.units)do if u.condition then actorCount=actorCount+1 end end
         if integer(h.actor_state_count,0,n)~=actorCount or tonumber(h.full_native_state)~=0 then return nil,'Missing or unsupported actor-state coverage metadata' end
-        local scope=actorCount==n and 'bounded_actor_state_v1'or'configuration_only_or_mixed'
+        local scope=actorCount==n-M.count(s,3) and 'bounded_actor_state_v1'or'configuration_only_or_mixed'
         if h.restoration_scope~=scope then return nil,'Actor-state coverage does not match the saved rows' end
-        s.partialActorState=actorCount<n
+        s.partialActorState=actorCount<n-M.count(s,3)
     end
-    if schema==4 then
+    if schema>=4 then
         local count=0;for _,u in ipairs(s.units)do if u.nativeName~=nil then count=count+1 end end
         if tonumber(h.native_name_version)~=1 or integer(h.native_name_count,0,n)~=count then return nil,'Native-name coverage is incomplete or unsupported'end
     end
+    if schema==6 and M.count(s,3)==0 then return nil,'Scenery scenario has no recorded objects' end
     return s
 end
 return M

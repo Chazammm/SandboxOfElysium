@@ -1,6 +1,7 @@
 -- Validate the model against a complete, guarded native test-field observation.
 -- Pure validation below does not approximate native placement rules.
 local Loadout=require('sandbox.loadout')
+local M=require('sandbox.model')
 local I={}
 local function alive(row)return row.alive==true or row.alive==1 end
 local function fail(code,details,state)
@@ -56,6 +57,24 @@ function I.inspect(r,s,positions,previous,configuration)
     end
     local rows,modelIds,used,signatures,structures={},{},{},{},{}
     for _,row in ipairs(state.units or {}) do rows[row.unit]=row end
+    if type(r.api.testFieldSceneryState)=='function' and not M.isWaterTerrain(s.terrain) then
+        local read,scenery=pcall(r.api.testFieldSceneryState)
+        if not read or type(scenery)~='table' or scenery.version~=1 or scenery.session~=state.session or type(scenery.objects)~='table' then
+            return fail('native_scenery_snapshot_unverified',nil,state)
+        end
+        for _,row in ipairs(scenery.objects) do
+            local cell=type(row.x)=='number' and type(row.y)=='number' and state.grid and state.grid[row.x*state.height+row.y+1]
+            if type(row.unit)~='number' or rows[row.unit] or row.owner~=31 or row.anchorLayer~='object' or
+                row.creationSource~='owned_scenery_placement' or row.width~=1 or row.height~=1 or
+                type(row.generation)~='number' or row.generation<1 or type(row.hp)~='number' or row.hp<=0 or
+                not cell or cell.object~=row.unit or cell.x~=row.x or cell.y~=row.y then
+                return fail('native_scenery_identity_unverified',{native_id=row.unit},state)
+            end
+            row.kind='terrain';row.alive=true;row.provenanceVerified=true
+            row.anchorCount=1;row.anchors={{x=row.x,y=row.y}};row.occupied=row.anchors
+            rows[row.unit]=row
+        end
+    end
     for _,u in ipairs(s.units or {}) do
         local id=r.live[u.id]
         if modelIds[u.id] then return fail('duplicate_model_id',{model_id=u.id},state) end
@@ -64,9 +83,20 @@ function I.inspect(r,s,positions,previous,configuration)
         if used[id] then return fail('aliased_native_handle',{model_id=u.id,other_model_id=used[id],native_id=id},state) end
         used[id]=u.id
         local row=rows[id]
+        if u.scenery then
+            if u.team~=3 or not row or row.creationSource~='owned_scenery_placement' or row.monster~=u.monster or
+                (positions and (row.x~=u.x or row.y~=u.y)) then
+                return fail('native_scenery_model_mismatch',{model_id=u.id,native_id=id},state)
+            end
+            signatures[id]=table.concat({state.session,row.generation,row.monster,row.owner,row.hp},':')
+            if previous and previous.signatures[id] and previous.signatures[id]~=signatures[id] then
+                return fail('native_scenery_changed',{native_id=id},state)
+            end
+        else
         if row and row.kind and row.kind~='actor' then return fail('model_structure_mismatch',{model_id=u.id,native_id=id,kind=row.kind},state) end
         if not row or not alive(row) or not row.hp or row.hp<=0 then return fail('model_unit_not_alive',{model_id=u.id,native_id=id},state) end
-        if row.monster~=u.monster or row.owner~=(u.team==1 and 0 or 24) then
+        if row.monster~=u.monster or row.owner~=M.teamOwners[u.team] or
+            (u.team==3 and (row.creationSource~='owned_neutral_actor' or row.provenanceVerified~=true or row.anchorLayer~='unit')) then
             return fail('native_identity_mismatch',{model_id=u.id,native_id=id,actual_monster=row.monster,actual_owner=row.owner},state)
         end
         if type(r.api.testFieldSpellState)=='function' and u.baseline and #(u.baseline.known or {})>0 then
@@ -122,6 +152,12 @@ function I.inspect(r,s,positions,previous,configuration)
         end
         if previous and previous.signatures[id] and previous.signatures[id]~=signatures[id] then
             return fail('existing_configuration_changed',{model_id=u.id,native_id=id},state)
+        end
+        end
+    end
+    for id,row in pairs(rows) do
+        if row.creationSource=='owned_scenery_placement' and not used[id] then
+            return fail('orphaned_native_scenery',{native_id=id},state)
         end
     end
     for _,row in ipairs(state.units or {}) do

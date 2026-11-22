@@ -72,6 +72,134 @@ local function nativeState()
     v.items[7].id=5;v.items[7].name='Twin';v.items[20].id=9;v.items[20].name='Twin'
     return v
 end
+test('implant mismatch during reconstruction names the unit and keeps the exact saved configuration',function()
+    local s,u=scene();local saved=M.encode(s,{})
+    local fresh=nativeState();fresh.items[7].id=-1;fresh.items[7].name=nil
+    local calls=0
+    local r={catalog=c,api={
+        testFieldLoadoutState=function()return fresh end,
+        setTestFieldConfiguration=function(unit,wanted)
+            calls=calls+1
+            assert(unit==41 and wanted.restoreKnown==true and wanted.items[7]==5)
+            return false,'permanent_anatomy_item_unsupported',{rollbackVerified=true}
+        end,
+    }}
+    function r:observeSpellSelection()end
+    local ok,why,detail=L.configure(r,u,41,true)
+    assert(not ok and calls==1 and detail.rollbackVerified)
+    assert(why:find('Spearman',1,true) and why:find('different permanent implants',1,true))
+    assert(r.lastConfig.configuration_result=='permanent_anatomy_item_unsupported')
+    local after=M.encode(s,{})
+    for section,row in pairs(saved)do for key,value in pairs(row)do assert(after[section][key]==value)end end
+end)
+
+local function implantFixture(savedItem,freshItem,mode)
+    local Runtime=require('sandbox.runtime')
+    local _,u=scene()
+    local state=nativeState()
+    state.generation=3
+    local items={
+        [5]={id=5,name='Twin',slot=7},
+        [9]={id=9,name='Twin',slot=7},
+        [182]={id=182,name='Spirit Eye',slot=7,injury=0x100000},
+        [185]={id=185,name='Crystal Heart',slot=7,injury=0x400000},
+    }
+    local function put(index,id)
+        local item=items[id]
+        state.items[index]={id=id,name=item and item.name,position=index-1,slotType=7,permanentEffects=item and item.injury~=nil}
+    end
+    put(7,freshItem)
+    local function condition(injury)
+        return {hp=5,maxHp=6,xp=9,kills=1,injuryFlags=injury,monster=13,width=1,height=1,version=1}
+    end
+    local current=condition(freshItem~=-1 and items[freshItem].injury or 0)
+    local savedInjury=(savedItem~=-1 and items[savedItem].injury or 0)|0x800000
+    local savedCondition=condition(savedInjury)
+    u.condition=savedCondition
+    u.equipment={{position=19,id=9,name='Twin'}}
+    if savedItem~=-1 then table.insert(u.equipment,1,{position=6,id=savedItem,name=items[savedItem].name}) end
+    local writes=0
+    local api={
+        testFieldLoadoutState=function()return M.copy(state) end,
+        loadedContentOrigin=function(_,id)return {id=id,kind=mode=='modified' and 'modified_by_mod' or 'baseline',observed=true}end,
+        testFieldActorState=function()
+            local row=M.copy(current);row.unit=41;row.generation=3;row.complete=true;row.fullState=false
+            return row
+        end,
+        set=function(name,unit,slot,id)
+            assert(name=='unitItem' and unit==41 and (slot==6 or mode=='retained'))
+            if mode=='retained' then assert(id==182,'retained heart must not be unequipped or reapplied') end
+            writes=writes+1
+            if mode=='failed' then return end
+            put(slot+1,id)
+            if items[id] and items[id].injury then current.injuryFlags=current.injuryFlags|items[id].injury end
+            if mode=='changed_other_slot' then put(20,-1) end
+        end,
+        setTestFieldConfiguration=function(unit,wanted)
+            assert(unit==41 and wanted.restoreKnown)
+            local balance={}
+            for i,id in ipairs(wanted.items) do
+                if (items[id] or {}).injury then balance[id]=(balance[id] or 0)+1 end
+                local old=state.items[i].id
+                if (items[old] or {}).injury then balance[old]=(balance[old] or 0)-1 end
+            end
+            for _,count in pairs(balance)do if count~=0 then return false,'permanent_anatomy_item_unsupported',{rollbackVerified=true} end end
+            for i,id in ipairs(wanted.items)do put(i,id)end
+            return true
+        end,
+        setTestFieldActorState=function(unit,saved)
+            assert(unit==41 and saved.hp==5 and saved.xp==9 and saved.injuryFlags==savedCondition.injuryFlags)
+            current=M.copy(saved)
+            return true
+        end,
+    }
+    local catalog=M.copy(c);catalog.byItemId=items
+    local r=Runtime.new(api,catalog)
+    function r:observeSpellSelection()end
+    function r:spellList(_,name)return name=='unitKnownSpell' and {'1:Same','2:Same'} or {'2:Same'}end
+    return r,u,function()return state,current,writes end
+end
+
+test('a recreated actor receives a missing eye, replacing heart or no implant with exact injury and equipment state',function()
+    for _,pair in ipairs({{182,-1},{182,185},{185,182},{-1,185}})do
+        local r,u,read=implantFixture(pair[1],pair[2])
+        local intended=M.copy(u.condition)
+        assert(r:configure(u,41,true))
+        local state,condition,writes=read()
+        local expectedWrites=pair[1]~=-1 and pair[2]~=-1 and 2 or 1
+        assert(writes==expectedWrites and state.generation==3 and state.items[7].id==pair[1] and state.items[20].id==9)
+        assert(condition.injuryFlags==intended.injuryFlags and condition.hp==intended.hp and condition.xp==intended.xp)
+        assert(u.condition.injuryFlags==intended.injuryFlags and u.spells[1]=='2:Same')
+    end
+end)
+test('a retained implant in the wrong slot is moved by the verified configuration without running its effect again',function()
+    local r,u,read=implantFixture(182,185,'retained')
+    u.equipment[#u.equipment+1]={position=7,id=185,name='Crystal Heart'}
+    u.condition.injuryFlags=u.condition.injuryFlags|0x400000
+    assert(r:configure(u,41,true))
+    local state,_,writes=read()
+    assert(writes==1 and state.items[7].id==182 and state.items[8].id==185)
+end)
+test('matching implants are retained and a live edit or changed item definition cannot trigger replay',function()
+    local r,u,read=implantFixture(182,182)
+    assert(r:configure(u,41,true));local _,_,writes=read();assert(writes==0)
+    for _,mode in ipairs({'live','modified'})do
+        r,u,read=implantFixture(182,185,mode)
+        local accepted=r:configure(u,41,mode~='live')
+        local state,_,count=read()
+        assert(not accepted and count==0 and state.items[7].id==185)
+    end
+end)
+test('failed implant write and unexpected slot changes refuse before completing the candidate',function()
+    for _,mode in ipairs({'failed','changed_other_slot'})do
+        local r,u,read=implantFixture(182,185,mode)
+        local before=u.condition.injuryFlags
+        local ok,why=r:configure(u,41,true)
+        local _,condition,writes=read()
+        assert(not ok and writes==1 and why:find('unexpected slot',1,true) and u.condition.injuryFlags==before)
+        assert(condition.injuryFlags~=before and r.lastConfig.configuration_result=='implant_replay_unverified')
+    end
+end)
 test('explicitly unsupported capability and incomplete readback are refused',function()
     local value=nativeState();local api={testFieldLoadoutState=function()return value end,setTestFieldConfiguration=function()end}
     local r={api=api};assert(L.read(r,41))

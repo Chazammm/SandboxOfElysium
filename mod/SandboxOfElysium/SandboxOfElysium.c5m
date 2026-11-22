@@ -1,2 +1,3 @@
 icon "banner.tga"
-description "SandboxOfElysium 0.2.0-rc.1: configure two armies and run native battles. Requires the matching owned test-field APIs from CoE5SE."
+description "Sandbox of Elysium 0.2.0-beta.2: configure armies and run native battles. Requires Windows CoE5 5.43 x64 and CoE5SE 3.8.2."
+needs_script_extender
